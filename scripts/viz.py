@@ -37,7 +37,7 @@ def plot_big(img, title=""):
     plt.figure(figsize=(10,10))
     plt.title(title)
     if img.ndim == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.cvtColor(img.astype("uint8"), cv2.COLOR_BGR2RGB)
         plt.imshow(img)
     else:
         plt.imshow(img, cmap='gray')

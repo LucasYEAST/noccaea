@@ -4,13 +4,14 @@ Created on Wed Sep 30 16:40:58 2020
 
 @author: lucas
 """
-from scripts import utils, processing
+from scripts import utils, processing, draw
 from scripts.viz import *
 import itertools
 
 import cv2
 import numpy as np
 import pandas as pd
+import pickle
 
 RAW_TIFF_PATH = "data/raw_data/tiff/"
 BATCH_MSK_PATH = "data/batch_msk/"
@@ -19,12 +20,68 @@ BATCH_MULTIMSK_PATH = "data/batch_multimsk/"
 PLANT_IMG_PATH = "data/plant_img/"
 PLANT_MSK_PATH = "data/plant_msk/"
 PLANT_MULTIMSK_PATH = "data/plant_multimsk/"
+PLANT_ZIMG_PATH = "data/plant_Zimg/"
+
+DF_SAVE_PATH = "data/Noccaea_processed.csv"
+POLY_DCT_PATH = "data/polygon_dict.pck"
 
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
 
 obj_class_lst = ["background", "petiole", "margin", "vein", "tissue"]
 msk_col_dct = get_colors(obj_class_lst)
 
+# %% clear all previous generated
+import os
+
+# Re-create polygon dict and empty directories
+# polygon_dct = {batch: {} for batch in batchname_lst}
+# with open(POLY_DCT_PATH, "wb") as f:
+#             pickle.dump(polygon_dct, f)
+
+# fn_lst = os.listdir(PLANT_IMG_PATH)
+# for fn in fn_lst:
+#     os.unlink(PLANT_IMG_PATH + fn)
+#     os.unlink(PLANT_MSK_PATH + fn)
+#     os.unlink(PLANT_MULTIMSK_PATH + fn)
+#     os.unlink(PLANT_ZIMG_PATH + fn)
+
+#TODO Change all occurences of 'batch' to remove spaces?
+# %% 0. Manually divide batches into plants and annotate
+df = pd.read_csv(DF_SAVE_PATH, index_col=0)
+with open(POLY_DCT_PATH, "rb") as f:
+    polygon_dct = pickle.load(f)
+
+for batch in batchname_lst:
+    img = cv2.imread(RAW_TIFF_PATH + batch + "- " + "Image.tif", cv2.IMREAD_GRAYSCALE)
+    Zimg = cv2.imread(RAW_TIFF_PATH + batch +  "- " + "Z.tif", cv2.IMREAD_GRAYSCALE)
+    all_plants_seen = False
+    
+    while not all_plants_seen:
+        # Manually draw polygon around plant
+        pdrawer = draw.PolygonDrawer("draw polygon", img)
+        polygon = pdrawer.run()
+                
+        # Annotate
+        img_poly = cv2.polylines(np.copy(img), polygon, True, (255,255,255), 1)
+        plot_big(img_poly)
+        accession, replicate = draw.annotate(batch)
+        fn = "_".join([batch, accession, replicate])
+        fn += ".tif"
+
+        #TODO check whether accession and replicate were already entered?
+
+        # Store polygon and annotation
+        polygon_dct[batch][accession + "_" + str(replicate)] = polygon
+        with open(POLY_DCT_PATH, "wb") as f:
+            pickle.dump(polygon_dct, f)
+            
+        df.loc[(df["Accession #"] == int(accession)) & (df["Biological replicate"] == replicate) & 
+               (df["Plant part"] == "shoot"), ["batch", "fn"]] = [batch, fn]
+        df.to_csv(DF_SAVE_PATH)
+        
+        answer = input("Done drawing for this batch? (y)")
+        if answer == "y":
+            all_plants_seen = True
 
 # %% 1. Create batch foreground masks
 layers = ["Ca.tif", "K.tif", "Ni.tif", "Image.tif"]
@@ -147,49 +204,74 @@ for batch in batchname_lst:
     # multi_msk = cv2.cvtColor(multi_msk.astype("uint8"), cv2.COLOR_RGB2BGR)
     cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
 
-# %% 3. Manually draw individual plant masks
-# drawing = False	 # true if mouse is pressed 
-# mode = True		 # if True, draw rectangle. 
-# ix, iy = -1, -1
 
-# # Load plant data
+# %% Create individual images per plant
 
-# # Create column for bbox coordinates
+df = pd.read_csv(DF_SAVE_PATH, index_col=0)
+with open(POLY_DCT_PATH, "rb") as f:
+    polygon_dct = pickle.load(f)
 
-# # Iterate over batches
-# for batch in batchname_lst:
-#   # Open batch image
+for batch in batchname_lst:    
+    img_path = RAW_TIFF_PATH + batch + "- Image.tif"
+    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
     
-#   # Iterate over plants in batch
-  
-#   # Display accession and repetition; instruct to draw bounding box
-  
-#   # Store bounding box coords in dataframe
-  
-#   # save/overwrite dataframe on disk
+    Zimg_path = RAW_TIFF_PATH + batch + "- Zn.tif"
+    Zimg = cv2.imread(Zimg_path, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(Zimg, np.ndarray), "{} doesn't exsit".format(Zimg_path)
     
-# img = np.zeros((512, 512, 3), np.uint8) 
-# cv2.namedWindow('image') 
-# cv2.setMouseCallback('image', draw_circle) 
+    msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
+    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
+    
+    multimsk_path = BATCH_MULTIMSK_PATH + batch + "multimsk.tif"
+    multimsk = cv2.imread(multimsk_path) # Load as RGB
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
+        
+    
+    kernel = np.ones((5,5),np.uint8)
+    dil_msk = cv2.dilate(msk, kernel, iterations = 1)
+    
+    # Loop over polygon dictionaries
+    for acc_rep, polygon in polygon_dct[batch].items():
+        
+        # Crop img, Zimg, msk and multimsk using polygon
+        # Pad everything outside of polygon to black  TODO move function to module
+        
+        blacked_img = processing.poly_crop(img, polygon)
+        blacked_Zimg = processing.poly_crop(Zimg, polygon)
+        blacked_msk = processing.poly_crop(msk, polygon)
+        bged_multimsk = processing.poly_crop(multimsk, polygon, 
+                                             col = (255,255,255), bg = msk_col_dct['background'])
+            
+        # Crop image to bounding box around polygon
+        x,y,w,h = cv2.boundingRect(blacked_img)
+        plant_dil_msk = dil_msk[y:y+h,x:x+w]
+        plant_msk = blacked_msk[y:y+h,x:x+w] * 255
+    
+        dirty_plant_img = blacked_img[y:y+h,x:x+w]
+        dirty_plant_Zimg = blacked_Zimg[y:y+h,x:x+w]
+        dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
+        
+        # Black out everything except for plant + a little edge of background
+        plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
+        plant_Zimg = np.where(plant_dil_msk == 1, dirty_plant_Zimg, 0)
+        plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
+        plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
+        
+        # Save images to right folder'
+        accession, replicate = acc_rep.split("_")
+        fn = "_".join([batch, accession, replicate])
+        fn += ".tif"
+        cv2.imwrite(PLANT_IMG_PATH + fn, plant_img)
+        cv2.imwrite(PLANT_MSK_PATH + fn, plant_msk)
+        cv2.imwrite(PLANT_MULTIMSK_PATH + fn, plant_multimsk)
+        cv2.imwrite(PLANT_ZIMG_PATH + fn, plant_Zimg)
+    
 
-# while(1): 
-# 	cv2.imshow('image', img) 
-# 	k = cv2.waitKey(1) & 0xFF
-# 	if k == ord('m'): 
-# 		mode = not mode 
-# 	elif k == 27: 
-# 		break
 
-# cv2.destroyAllWindows() 
-
-
-
-# %% 3. Automatically create individual plant masks from batch masks
-
-df = pd.read_excel("data/Noccaea_raw.xlsx", sheet_name = "ALL data")
-DF_SAVE_PATH = "data/Noccaea_stats.csv"
-
-kernel = np.ones((5,5),np.uint8)
+# %% 3. semi-Automatically create individual plant masks from batch masks
+batch_contours = {}
 for batch in batchname_lst:
     img_path = RAW_TIFF_PATH + batch + "- Image.tif"
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
@@ -223,9 +305,51 @@ for batch in batchname_lst:
                 else:
                     delete_lst.append(i)
     delete_lst = list(set(delete_lst))
+    contours_lst = contours.tolist()
     for index in sorted(delete_lst, reverse=True):
         del filled_contours[index]
+        del contours_lst[index]
+    assert len(filled_contours) == len(contours_lst), "contours and filled_contours not of same length"
     
+    delete_lst = []
+    new_contours = []
+    for i, filled_contour in enumerate(filled_contours):
+        
+        # Create bbox for zooming while drawing
+        x,y,w,h = cv2.boundingRect(filled_contour)
+        x,y = max(x - 10, 0), max(y - 10, 0) # Expand bbox by 10 unless bbox crosses image boundary
+        w,h = min(w + 20, msk.shape[1] - x), min(h + 20, msk.shape[0] - y) #Expand bbox by 10 unless bbox crosses image boundary
+        
+        # Display contour and ask if OK
+        plot_big2(img, filled_contour)
+        contour_OK = input("contour OK? (y/n/del) ")
+        
+        # Draw manual polygon
+        if contour_OK == "n":
+            delete_lst.append(i)
+            canvas_img = img[y:y+h,x:x+w]
+            
+            pdrawer = draw.PolygonDrawer("draw polygon", canvas_img)
+            done = False
+            while done == False: 
+               polygon = pdrawer.run()
+               polygon[:,0] += x
+               polygon[:,1] += y
+               new_contours.append(polygon)
+               import pdb; pdb.set_trace()
+               done_answer = input("Done drawing? (y)")
+               if done_answer == "y":
+                   done = True
+                   
+        elif contour_OK == "del":
+           delete_lst.append(i)
+                   
+        
+        # Map to position in original image
+        
+        # Save
+    
+    # batch_contours[batch] = (contours, filled_contours)
     # overlap.append(j)
         # overlap_lst.append(overlap) # list of overlap lists
     # print(time.time() - a)
@@ -238,7 +362,12 @@ for batch in batchname_lst:
     #     for part_i in plant:
     #         connected_plant =  cv2.add(connected_plant, filled_contours[part_i], dtype=cv2.CV_8U) # "saturated add"; if > 255 -> 255
     #     plant_lst.append(connected_plant)
-   
+
+# %% 
+
+
+kernel = np.ones((5,5),np.uint8)
+# plant = cv2.dilate(plant, kernel, iterations = 1)
     for i, plant in enumerate(filled_contours):
         # Dilate plant masks a bit to make sure the whole plant is in the bbox
         # plant = cv2.dilate(plant, kernel, iterations = 1)
@@ -252,24 +381,8 @@ for batch in batchname_lst:
         dirty_plant_multimsk = multimsk[y:y+h,x:x+w]
         clean_plant_msk = plant[y:y+h,x:x+w]
         
-        ## Document accession and replicate
-        plot_big2(plant, img)
-        confirm = False
-        while confirm == False:
-            accesion = input("tell me the accession")
-            replicate = input("tell me the replicate")
-            confirmation = input("accesion: " + accesion + " replicate: " + replicate + " confirm: y/n")
-            if confirmation == "y":
-                confirm = True
-        
-        if accesion == False:
             
 
-        fn = "_".join([batch, accession, replicate])
-        # Save batch, bbox, fn
-            
-        df.loc[(df["Accession #"] == accesion) & (df["Biological replicate"] == replicate) & 
-               (df["Plant part"] == "shoot"), ["batch", "bbox", "fn"]] = [batch, (x,y,w,h), fn]
                 
         
         
@@ -295,9 +408,34 @@ for batch in batchname_lst:
         cv2.imwrite(PLANT_MSK_PATH + batch + " " + str(i) + ".tif", plant_msk * 255)
         cv2.imwrite(PLANT_MULTIMSK_PATH + batch + " " + str(i) + ".tif", plant_multimsk)
 
+# %% Document accession and replicate
+
+
+for batch in batchname_lst:
     
+    plot_big2(plant, img)
+    confirm = False
+    while confirm == False:
+        accession = input("tell me the accession")
+        replicate = input("tell me the replicate")
+        confirmation = input("accession: " + accession + " replicate: " + replicate + " confirm: y/n")
+        if confirmation == "y" or confirmation == "":
+            confirm = True
+    
+        if accession == "delete":
+            
+            
+
+        fn = "_".join([batch, accession, replicate])
+        # Save batch, bbox, fn
+
 # %% 4. Calculate concentration statistics
+PLANT_IMG_PATH = "data/plant_img/"
+PLANT_MSK_PATH = "data/plant_msk/"
+PLANT_MULTIMSK_PATH = "data/plant_multimsk/"
+
 for fn in os.listdir(PLANT_IMG_PATH):
-    img = 
+    img = cv2.imread()
 
 
+    

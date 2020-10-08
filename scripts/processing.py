@@ -77,31 +77,35 @@ def create_mask(img, contours):
 # Shape using OpenCV in Python3 https://www.geeksforgeeks.org/python-draw-rectangular-shape-and-extract-objects-using-opencv/
 
 # mouse callback function 
-def draw_circle(event, x, y, flags, param): 
-	global ix, iy, drawing, mode 
+# def draw_circle(event, x, y, flags, param): 
+# 	global ix, iy, drawing, mode 
+# 	
+# 	if event == cv2.EVENT_LBUTTONDOWN: 
+# 		drawing = True
+# 		ix, iy = x, y 
+# 	
+# 	elif event == cv2.EVENT_MOUSEMOVE: 
+# 		if drawing == True: 
+# 			if mode == True: 
+# 				cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 3) 
+# 				a = x 
+# 				b = y 
+# 				if a != x | b != y: 
+# 					cv2.rectangle(img, (ix, iy), (x, y), (0, 0, 0), -1) 
+# 			else: 
+# 				cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
+# 	
+# 	elif event == cv2.EVENT_LBUTTONUP: 
+# 		drawing = False
+# 		if mode == True: 
+# 			cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 2) 
+# 	
+# 		else: 
+# 			cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
 	
-	if event == cv2.EVENT_LBUTTONDOWN: 
-		drawing = True
-		ix, iy = x, y 
-	
-	elif event == cv2.EVENT_MOUSEMOVE: 
-		if drawing == True: 
-			if mode == True: 
-				cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 3) 
-				a = x 
-				b = y 
-				if a != x | b != y: 
-					cv2.rectangle(img, (ix, iy), (x, y), (0, 0, 0), -1) 
-			else: 
-				cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
-	
-	elif event == cv2.EVENT_LBUTTONUP: 
-		drawing = False
-		if mode == True: 
-			cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 2) 
-	
-		else: 
-			cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
-	
-
+def poly_crop(img, polygon, col = 255, bg = 0):
+    stencil = np.zeros(img.shape).astype(img.dtype)
+    cv2.fillPoly(stencil, polygon, col)
+    res = np.where(stencil == 255, img, bg)
+    return res
 
