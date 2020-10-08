@@ -24,9 +24,6 @@ class PolygonDrawer(object):
         self.current = (0, 0) # Current position, so we can draw the line-in-progress
         self.points = [] # List of points defining our polygon
         
-        self.scale_f = 1 #self.get_scale_f()
-        self.img_small = self.img #self.downsize_img()
-
     def on_mouse(self, event, x, y, buttons, user_param):
         # Mouse callback that gets called for every mouse event (i.e. moving, clicking, etc.)
 
@@ -45,39 +42,10 @@ class PolygonDrawer(object):
             print("Completing polygon with %d points." % len(self.points))
             self.done = True
 
-    def get_scale_f(self):
-        # Find downscale / upscale so img fits window
-        resize_x = self.window_size[0] / self.img.shape[0]
-        resize_y = self.window_size[1] / self.img.shape[1]
-        scale_f = min(resize_x, resize_y) * .9
-        return scale_f
-        
-    def downsize_img(self):
-        new_dims = (int(self.img.shape[0] * self.scale_f), int(self.img.shape[1] * self.scale_f))
-        return cv2.resize(self.img, new_dims, interpolation = cv2.INTER_CUBIC )
-    
-    def upsize_polygon(self):
-        
-        ow, oh = self.img_small.shape
-        w, h = self.img.shape
-        
-        M = cv2.getAffineTransform(np.float32([[ow, 0], [ow, oh], [0, oh]]), np.float32([[w, 0], [w, h], [0, h]])) 
-        
-        points_arr = np.array([self.points]).astype("int32")
-        return cv2.transform(points_arr, M)
-        # import pdb; pdb.set_trace()
-        # return scaled_points
-        # x,y,w,h = cv2.boundingRect(points_arr)
-        # center = (x + w/2, y + h/2)
-        # points_arr = points_arr - center
-        # points_scaled = points_arr / self.scale_f
-        # return np.around(points_scaled + center).astype("int32")
-        # return np.around(points_arr / self.scale_f).astype("int32")
-
     def run(self):
         # Let's create our working window and set a mouse callback to handle events
         cv2.namedWindow(self.window_name, flags=cv2.cv2.WINDOW_NORMAL)
-        cv2.imshow(self.window_name, np.zeros(self.img_small.size, np.uint8))
+        cv2.imshow(self.window_name, np.zeros(self.img.size, np.uint8))
         cv2.waitKey(1)
         cv2.setMouseCallback(self.window_name, self.on_mouse)
         
@@ -86,7 +54,7 @@ class PolygonDrawer(object):
             # This is our drawing loop, we just continuously draw new images
             # and show them in the named window
             # canvas = np.zeros(CANVAS_SIZE, np.uint8)
-            canvas = np.copy(self.img_small)
+            canvas = np.copy(self.img)
             if (len(self.points) > 0):
                 # Draw all the current polygon segments
                 cv2.polylines(canvas, np.array([self.points]), False, FINAL_LINE_COLOR, 1)
@@ -100,7 +68,7 @@ class PolygonDrawer(object):
 
         # User finised entering the polygon points, so let's make the final drawing
         # canvas = np.zeros(CANVAS_SIZE, np.uint8)
-        canvas = np.copy(self.img_small)
+        canvas = np.copy(self.img)
         # of a filled polygon
         if (len(self.points) > 0):
             cv2.polylines(canvas, np.array([self.points]), True, FINAL_LINE_COLOR, 1)
@@ -109,7 +77,6 @@ class PolygonDrawer(object):
         cv2.waitKey()
         cv2.destroyWindow(self.window_name)
         
-        large_polygon = self.upsize_polygon()
         # return large_polygon.astype("int32")
         return np.array([self.points]).astype("int32")
 

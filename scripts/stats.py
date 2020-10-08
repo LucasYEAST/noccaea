@@ -11,8 +11,8 @@ import numpy as np
 def get_layer(plant_multimsk, colors, substructure):
     # TODO change the msk_dct whatever thing so that it makes sense and you don't need 2 dichts
     # pseudo code  
-    sub_msk = np.where(plant_multimsk == colors[substructure], 255, 0)
-    return(cv2.cvtColor(sub_msk, cv2.COLOR_RGB2GRAY)) 
+    sub_msk = np.where(plant_multimsk == colors[substructure], (255,255,255), 0)
+    return(cv2.cvtColor(sub_msk.astype("uint8"), cv2.COLOR_RGB2GRAY)) 
     
 def get_sub_ele_img(plant_ele_img, sub_msk):    
     sub_msk_bool = sub_msk > 0
