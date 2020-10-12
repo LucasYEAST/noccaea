@@ -15,6 +15,8 @@ import pickle
 import os
 
 RAW_TIFF_PATH = "data/raw_data/tiff/"
+RAW_TXT_PATH = "data/raw_data/txt/"
+
 BATCH_MSK_PATH = "data/batch_msk/"
 BATCH_MULTIMSK_PATH = "data/batch_multimsk/"
 
@@ -51,10 +53,10 @@ df = pd.read_csv(DF_SAVE_PATH, index_col=0)
 with open(POLY_DCT_PATH, "rb") as f:
     polygon_dct = pickle.load(f)
 
-# TODO continue at 93a
+# TODO skipped batch 1
+# TODO batch 1 and 10 and more ? plants overlap with borders problematic
 for batch in batchname_lst:
     img = cv2.imread(RAW_TIFF_PATH + batch + "- " + "Image.tif", cv2.IMREAD_GRAYSCALE)
-    Zimg = cv2.imread(RAW_TIFF_PATH + batch +  "- " + "Z.tif", cv2.IMREAD_GRAYSCALE)
     all_plants_seen = False
     
     while not all_plants_seen:
@@ -88,7 +90,7 @@ for batch in batchname_lst:
         
 
 # %% 1. Create batch foreground masks
-layers = ["Ca.tif", "K.tif", "Ni.tif", "Image.tif"]
+layers = ["Ca.tif", "K.tif", "Ni.tif",] # "Image.tif"
 for batch in batchname_lst:
     binary_mask_lst = []
     for layer in layers:
@@ -100,8 +102,8 @@ for batch in batchname_lst:
         binary_mask_lst.append(th_img)
         
     # Take union over batch masks # TODO change to cv2.add
-    mask = (binary_mask_lst[0] == 255) | (binary_mask_lst[1] == 255) | (binary_mask_lst[2] == 255) \
-            | (binary_mask_lst[3] == 255)
+    mask = (binary_mask_lst[0] == 255) | (binary_mask_lst[1] == 255) | (binary_mask_lst[2] == 255) #\
+            #| (binary_mask_lst[3] == 255)
     mask = (mask * 255).astype("uint8")
     
     # Remove noise
@@ -220,10 +222,6 @@ for batch in batchname_lst:
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
     
-    Zimg_path = RAW_TIFF_PATH + batch + "- Zn.tif"
-    Zimg = cv2.imread(Zimg_path, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(Zimg, np.ndarray), "{} doesn't exsit".format(Zimg_path)
-    
     msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
     msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
@@ -232,7 +230,10 @@ for batch in batchname_lst:
     multimsk = cv2.imread(multimsk_path) # Load as RGB
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
         
+    Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
+    Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)    
     
+    # Dilate mask to include a strip of background around the plant Zimage
     kernel = np.ones((5,5),np.uint8)
     dil_msk = cv2.dilate(msk, kernel, iterations = 1)
     
@@ -266,11 +267,10 @@ for batch in batchname_lst:
         # Save images to right folder
         accession, replicate = acc_rep.split("_")
         fn = "_".join([batch, accession, replicate])
-        fn += ".tif"
-        cv2.imwrite(PLANT_IMG_PATH + fn, plant_img)
-        cv2.imwrite(PLANT_MSK_PATH + fn, plant_msk)
-        cv2.imwrite(PLANT_MULTIMSK_PATH + fn, plant_multimsk)
-        cv2.imwrite(PLANT_ZIMG_PATH + fn, plant_Zimg)
+        cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
+        cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
+        cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
+        np.savetxt(PLANT_ZIMG_PATH + fn + ".txt", plant_Zimg, fmt='%f', delimiter=",")
     
 # %% 4. Calculate concentration statistics
 
@@ -281,15 +281,15 @@ subs_n_colnames = [subs + "_npixel" for subs in substructure_lst]
 subs_meanZ_colnames = [subs + "_meanZC" for subs in substructure_lst]
 subs_CQ_colnames = [subs + "_CQ" for subs in substructure_lst[1:]] # "plant" doesn't have a CQ
 
-for fn in os.listdir(PLANT_ZIMG_PATH):
-    Zimg = cv2.imread(PLANT_ZIMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(Zimg, np.ndarray), "{} doesn't exsit".format(PLANT_ZIMG_PATH + fn)
-    
+for fn in os.listdir(PLANT_MSK_PATH):
     msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
     
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+    
+    Zfn = fn.split(".")[0] + ".txt"
+    Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
     
     absZlst, npixlst, meanZClst = [], [], []
     # TODO check get_sub_ele_stats for correctness
@@ -310,9 +310,8 @@ for fn in os.listdir(PLANT_ZIMG_PATH):
     df.loc[df["fn"] == fn, subs_meanZ_colnames] = meanZClst
 
 df[subs_CQ_colnames] = df[subs_meanZ_colnames[1:]].div(df["plant_meanZC"], axis=0)
-    
-# df.loc[:,"petiole_CQ"] = df.loc[:,"petiole_meanZC"].div(df.loc[:, "plant_meanZC"])
-    
 
+# TODO One runtimewarning invalid value mean_C = abs_ele / n_pixels probably n_pixels = 0?
+df.loc[df["Plant part"] == "shoot", ""]
 
     

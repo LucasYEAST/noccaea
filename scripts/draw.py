@@ -35,11 +35,11 @@ class PolygonDrawer(object):
             self.current = (x, y)
         elif event == cv2.EVENT_LBUTTONDOWN:
             # Left click means adding a point at current position to the list of points
-            print("Adding point #%d with position(%d,%d)" % (len(self.points), x, y))
+            # print("Adding point #%d with position(%d,%d)" % (len(self.points), x, y))
             self.points.append((x, y))
         elif event == cv2.EVENT_RBUTTONDOWN:
             # Right click means we're done
-            print("Completing polygon with %d points." % len(self.points))
+            # print("Completing polygon with %d points." % len(self.points))
             self.done = True
 
     def run(self):
@@ -80,6 +80,7 @@ class PolygonDrawer(object):
         # return large_polygon.astype("int32")
         return np.array([self.points]).astype("int32")
 
+# TODO recursive structure doesn't work here because it returns both wrong try and right try
 def annotate(batch):
     accession = input("tell me the accession ({})".format(batch))
     replicate = input("tell me the replicate ({})".format(batch))
