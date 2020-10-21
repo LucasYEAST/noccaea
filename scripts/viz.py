@@ -25,7 +25,7 @@ beta = (1.0 - alpha)
 
 def get_colors(class_lst):
     class_col_dct = {}
-    for obj_class, col in zip(class_lst, color_palette("colorblind")):
+    for obj_class, col in zip(class_lst, color_palette("Set2")):
         col = [int(x * 255) for x in col]
         col = (col[2], col[1], col[0]) # RGB to BGR for cv2
         class_col_dct[obj_class] = col

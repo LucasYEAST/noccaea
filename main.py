@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import os
+import matplotlib.pyplot as plt
 
 RAW_TIFF_PATH = "data/raw_data/tiff/"
 RAW_TXT_PATH = "data/raw_data/txt/"
@@ -30,8 +31,13 @@ POLY_DCT_PATH = "data/polygon_dict.pck"
 
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
 
-obj_class_lst = ["background", "petiole", "margin", "vein", "tissue"]
+obj_class_lst = ["background", "petiole", "margin", "vein", "tissue" ]
 msk_col_dct = get_colors(obj_class_lst)
+
+
+hex_msk_col_dct = {k:'#{:02x}{:02x}{:02x}'.format(v[2],v[1],v[0]) for k,v in msk_col_dct.items()}
+RGB_df = pd.Series(hex_msk_col_dct)
+RGB_df.to_csv("data/RGB_df.csv")
 
 # %% clear all previous generated
 
@@ -87,7 +93,6 @@ for batch in batchname_lst:
                (df["Plant part"] == "shoot"), ["batch", "fn"]] = [batch, fn]
         df.to_csv(DF_SAVE_PATH)
         
-        
 
 # %% 1. Create batch foreground masks
 layers = ["Ca.tif", "K.tif", "Ni.tif",] # "Image.tif"
@@ -115,7 +120,6 @@ for batch in batchname_lst:
     # plot_big2(mask, mask_closed, batch)
     cv2.imwrite(BATCH_MSK_PATH + batch + "batchmsk.tif", mask_closed)
     
-    
 # %% 2. Create batch multimask
 for batch in batchname_lst:
     img_fn = RAW_TIFF_PATH + batch + "- Image.tif"
@@ -138,16 +142,34 @@ for batch in batchname_lst:
     blade_kernel = np.ones((15,15),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-    blade = blade.astype("uint8")
 #     blade_overlay = cv2.addWeighted(img, alpha, blade, beta, 0.0)
-
+    
+      
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
-    petiole = np.where(msk != blade, msk, 0)
-    pet_kernel = np.ones((3,3), np.uint8)
-    petiole = cv2.morphologyEx(petiole, cv2.MORPH_OPEN, pet_kernel)
+    petiole = ((msk != blade) * 255).astype("uint8")
+    large_contours = processing.contouring(petiole, area_th = 0.00001)
+    petiole = processing.create_mask(petiole, large_contours)
+    petiole = ((petiole == 255) & (background == 0) * 255).astype("uint8")
+    # ov = (petiole & background) * 255
+    # over = overlay(petiole, ov)
+    # plot_big(over[:500,:500])
+    # plot_big(petiole[:1000,:1000])
+    # pet_kernel = np.ones((3,3), np.uint8)
+    # petiole = cv2.morphologyEx(petiole, cv2.MORPH_OPEN, pet_kernel)
     msk_dct["petiole"] = petiole
     # plot_big(petiole)
+    
+    # Assign blade + all unassigned pixels to blade
+    blade = ((background + petiole) == 0) * 255
+    blade = blade.astype("uint8")
+    
+    bg_BGR = cv2.cvtColor(background.astype("uint8"), cv2.COLOR_GRAY2BGR)
+    # bg_BGR[:,:,0] = 0
+    # blade_BGR = cv2.cvtColor(blade.astype("uint8"), cv2.COLOR_GRAY2BGR)
+    # blade_BGR[:,:,1] = 0
+    # bg_blade_ov = overlay(bg_BGR, blade_BGR, alpha=0.5, beta=0.5)
+    # plot_big(bg_blade_ov[:300,:300])
 
 
     ## Get leaf margin
@@ -161,8 +183,8 @@ for batch in batchname_lst:
     ## Get vein mask
     blade_img = np.where(blade, img, 0)
     neg_veins = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
-    # neg_vein_mask = np.where(neg_veins > 0, 255, 0)
-    # vein_mask = np.where((neg_vein_mask == 0) & (blade == 255), 255, 0)
+    # neg_vein_mask = np.where(neg_veins < 0, 255, 0)
+    # vein_mask = np.where((neg_vein_mask == 255) & (blade == 255), 255, 0)
     
     neg_vein_mask_th = np.where(neg_veins < -1000, 255, 0)
     vein_mask_th = np.where((neg_vein_mask_th == 255) & (blade == 255), 255, 0)
@@ -174,10 +196,15 @@ for batch in batchname_lst:
     # th_veins = cv2.adaptiveThreshold(blade_img,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
     #         cv2.THRESH_BINARY,7,0)
     # plt.figure(figsize=(25,25))
-    # plt.subplot(2,2,1),plt.imshow(th_veins[:300,:300],'gray')
-    # plt.subplot(2,2,2),plt.imshow(img[:300,:300], 'gray')
+    # plt.subplot(2,2,1),plt.imshow(img[:300,:300], 'gray')
+    # plt.title("Compton scatter image", fontsize=30)
+    # plt.subplot(2,2,2),plt.imshow(th_veins[:300,:300],'gray')
+    # plt.title("Adaptive threshold on Gaussian blurred image", fontsize=30)
     # plt.subplot(2,2,3),plt.imshow(vein_mask[:300,:300], 'gray')
+    # plt.title("Laplacian thresholded at <0", fontsize=30)
     # plt.subplot(2,2,4),plt.imshow(vein_mask_th[:300,:300], 'gray')
+    # plt.title("Laplacian therholded at > 1000", fontsize=30)
+    # plt.savefig("data/output/vein_comparison.png")
     # plt.show()
     
     ## get leaf tissue
@@ -208,7 +235,89 @@ for batch in batchname_lst:
     # msk_rgb = np.where(msk_rgb == (255,255,255), (255,30,30), msk_rgb)
     # overlay(multi_msk, msk_rgb)
     # multi_msk = cv2.cvtColor(multi_msk.astype("uint8"), cv2.COLOR_RGB2BGR)
-    cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
+    # cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
+    break
+# %%
+## Get vein mask
+blade_img = np.where(blade, img, 0)
+lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
+
+lap_lower0 = np.where(lap_img < 0, 255, 0)
+vein_mask = np.where((lap_lower0 == 255) & (blade == 255), 255, 0)
+
+lap_lower_minus1000 = np.where(lap_img < -1000, 255, 0)
+vein_mask_th = np.where((lap_lower_minus1000 == 255) & (blade == 255), 255, 0)
+
+lap_lower_minus2000 = np.where(lap_img < -2500, 255, 0)
+vein_mask_lower2000 = np.where((lap_lower_minus2000 == 255) & (blade == 255), 255, 0)
+
+marginless_veins = np.where((vein_mask_th == 255) & (margin == 0), 255, 0)
+
+blade_img = cv2.GaussianBlur(blade_img,(5,5), sigmaX=0)
+th_veins = cv2.adaptiveThreshold(blade_img,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
+        cv2.THRESH_BINARY,7,0)
+th_veins = np.where((blade == 255) & (margin == 0), th_veins, 0)
+
+noise_kernel = np.ones((2,2),np.uint8)
+th_veins_opened = cv2.morphologyEx(th_veins, cv2.MORPH_OPEN, noise_kernel)
+
+skeleton_veins = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
+ 
+plt.figure(figsize=(25,25))
+plt.subplot(2,2,1),plt.imshow(img[:300,:300], 'gray')
+plt.title("Compton scatter image", fontsize=30)
+plt.subplot(2,2,2),plt.imshow(vein_mask[:300,:300],'gray')
+plt.title("Laplace <0", fontsize=30)
+plt.subplot(2,2,3),plt.imshow(skeleton_veins[:300,:300], 'gray')
+plt.title("Skeletonized adaptive threshold", fontsize=30)
+plt.subplot(2,2,4),plt.imshow(vein_mask_lower2000[:300,:300], 'gray')
+plt.title("Laplacian <-2500 negative", fontsize=30)
+plt.savefig("data/output/vein_comparison2.png")
+plt.show()
+
+
+# Convert skeletonized to red and laplacian -2500 to green
+img_BGR = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+img_BGR[:,:,1] = 0
+skeleton_veins = cv2.subtract(skeleton_veins, vein_mask_lower2000.astype("uint8"))
+skeleton_veins_BGR = cv2.cvtColor(skeleton_veins, cv2.COLOR_GRAY2BGR)
+# skeleton_veins_BGR[:,:,1] = 0
+
+vein_mask_lower2000_BGR = cv2.cvtColor(vein_mask_lower2000.astype("uint8"), cv2.COLOR_GRAY2BGR)
+# vein_mask_lower2000_BGR[:,:,0] = 0
+
+addition = cv2.add(vein_mask_lower2000_BGR, skeleton_veins_BGR)
+add_ov = overlay(addition,img_BGR, alpha=0.5, beta=0.5)
+sub = cv2.subtract(img_BGR, addition)
+
+cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
+# plot_big(addition)
+
+
+# num_labels, labels_im = cv2.connectedComponents(th_veins_opened, connectivity=4)
+
+# def imshow_components(labels):
+#     # Map component labels to hue val
+#     label_hue = np.uint8(179*labels/np.max(labels))
+#     blank_ch = 255*np.ones_like(label_hue)
+#     labeled_img = cv2.merge([label_hue, blank_ch, blank_ch])
+
+#     # cvt to BGR for display
+#     labeled_img = cv2.cvtColor(labeled_img, cv2.COLOR_HSV2BGR)
+
+#     # set bg label to black
+#     labeled_img[label_hue==0] = 0
+
+#     cv2.imshow('labeled.png', labeled_img)
+#     cv2.waitKey()
+
+# imshow_components(labels_im)
+
+# skeleton_veins_terts = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
+# plt.figure(figsize=(10,10))
+# plt.title("Skeletonized Laplacian <0")
+# plt.imshow(skeleton_veins_terts[:300,:300], 'gray')
+# plt.savefig("data/output/vein_comparison_LapSkel.png")
 
 
 # %% Create individual images per plant
@@ -297,6 +406,9 @@ for fn in os.listdir(PLANT_MSK_PATH):
     for subs in substructure_lst:
         if subs == "plant":
             layer_msk = msk
+        # elif subs == "margin":
+        #     layer_msk = stats.get_layer(multimsk, msk_col_dct, subs)
+        #     layer_msk = insert_class_noise(layer_msk, .20)
         else:
             layer_msk = stats.get_layer(multimsk, msk_col_dct, subs)
         subs_Z_image = stats.get_sub_ele_img(Zimg, layer_msk)
@@ -310,8 +422,19 @@ for fn in os.listdir(PLANT_MSK_PATH):
     df.loc[df["fn"] == fn, subs_meanZ_colnames] = meanZClst
 
 df[subs_CQ_colnames] = df[subs_meanZ_colnames[1:]].div(df["plant_meanZC"], axis=0)
-
+df.to_csv("data/Noccaea_proc_marginNoise20.csv")
+# df.to_csv(DF_SAVE_PATH)
 # TODO One runtimewarning invalid value mean_C = abs_ele / n_pixels probably n_pixels = 0?
-df.loc[df["Plant part"] == "shoot", ""]
 
+# %% Assign random class to x% of pixels
+
+def insert_class_noise(layer_msk, noise_fraction):
+    "changes x % of pixels of one class to a random class"
+    N = int(layer_msk.size * noise_fraction)
+    X_indices = np.random.randint(0,layer_msk.shape[0], size=N)
+    Y_indices = np.random.randint(0, layer_msk.shape[1], size=N)
+    layer_msk[X_indices, Y_indices] = 255
+    return layer_msk
+    
+    
     

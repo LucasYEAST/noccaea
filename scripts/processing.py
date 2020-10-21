@@ -54,11 +54,14 @@ def contouring(img, area_th = 0.0001):
     """
     contours, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     large_contours = []
+    small_contours = []
     x , y = np.shape(img)
     total_area = x * y
     for c in contours:
         if cv2.contourArea(c) > int(total_area * area_th):
             large_contours.append(c)
+        else:
+            small_contours.append(c)
     large_contours = np.array(large_contours)
     return large_contours
 
