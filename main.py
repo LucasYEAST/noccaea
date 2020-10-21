@@ -135,77 +135,42 @@ for batch in batchname_lst:
     # Get background
     background = np.where(msk == 0, 255, 0)
     msk_dct["background"] = background
-#     bg_overlay = cv2.addWeighted(img, alpha, background.astype("uint8"), beta, 0.0)
-#     plot_big(bg_overlay[:300,:300])
     
     # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
     blade_kernel = np.ones((15,15),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-#     blade_overlay = cv2.addWeighted(img, alpha, blade, beta, 0.0)
-    
-      
+     
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
     petiole = ((msk != blade) * 255).astype("uint8")
     large_contours = processing.contouring(petiole, area_th = 0.00001)
     petiole = processing.create_mask(petiole, large_contours)
-    petiole = ((petiole == 255) & (background == 0) * 255).astype("uint8")
-    # ov = (petiole & background) * 255
-    # over = overlay(petiole, ov)
-    # plot_big(over[:500,:500])
-    # plot_big(petiole[:1000,:1000])
-    # pet_kernel = np.ones((3,3), np.uint8)
-    # petiole = cv2.morphologyEx(petiole, cv2.MORPH_OPEN, pet_kernel)
+    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8")
     msk_dct["petiole"] = petiole
-    # plot_big(petiole)
     
     # Assign blade + all unassigned pixels to blade
     blade = ((background + petiole) == 0) * 255
     blade = blade.astype("uint8")
     
-    bg_BGR = cv2.cvtColor(background.astype("uint8"), cv2.COLOR_GRAY2BGR)
-    # bg_BGR[:,:,0] = 0
-    # blade_BGR = cv2.cvtColor(blade.astype("uint8"), cv2.COLOR_GRAY2BGR)
-    # blade_BGR[:,:,1] = 0
-    # bg_blade_ov = overlay(bg_BGR, blade_BGR, alpha=0.5, beta=0.5)
-    # plot_big(bg_blade_ov[:300,:300])
-
 
     ## Get leaf margin
     margin_kernel = np.ones((5,5),np.uint8)
     gradient = cv2.morphologyEx(blade, cv2.MORPH_GRADIENT, margin_kernel)
     margin = np.where((blade == 255) & (gradient == 255), 255, 0).astype("uint8")
     msk_dct["margin"] = margin
-#     margin_overlay = cv2.addWeighted(img, alpha, margin, beta, 0.0)
-#     plot_big(margin_overlay[:300,:300])
-    
+
     ## Get vein mask
     blade_img = np.where(blade, img, 0)
-    neg_veins = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
-    # neg_vein_mask = np.where(neg_veins < 0, 255, 0)
-    # vein_mask = np.where((neg_vein_mask == 255) & (blade == 255), 255, 0)
+    lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
     
-    neg_vein_mask_th = np.where(neg_veins < -1000, 255, 0)
-    vein_mask_th = np.where((neg_vein_mask_th == 255) & (blade == 255), 255, 0)
+    thin_veins = (lap_img < -2500) * 255 #np.where(lap_img < -2500, 255, 0)
+    fat_veins = (lap_img < 0) * 255
+    skeleton_veins = cv2.ximgproc.thinning(fat_veins.astype("uint8"))
     
-    marginless_veins = np.where((vein_mask_th == 255) & (margin == 0), 255, 0)
+    veins = cv2.add(skeleton_veins,thin_veins.astype("uint8") ) 
+    marginless_veins = np.where((veins == 255) & (blade == 255) & (margin == 0), 255, 0)
     msk_dct['vein'] = marginless_veins
-    
-    # blade_img = cv2.GaussianBlur(blade_img,(5,5), sigmaX=0)
-    # th_veins = cv2.adaptiveThreshold(blade_img,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
-    #         cv2.THRESH_BINARY,7,0)
-    # plt.figure(figsize=(25,25))
-    # plt.subplot(2,2,1),plt.imshow(img[:300,:300], 'gray')
-    # plt.title("Compton scatter image", fontsize=30)
-    # plt.subplot(2,2,2),plt.imshow(th_veins[:300,:300],'gray')
-    # plt.title("Adaptive threshold on Gaussian blurred image", fontsize=30)
-    # plt.subplot(2,2,3),plt.imshow(vein_mask[:300,:300], 'gray')
-    # plt.title("Laplacian thresholded at <0", fontsize=30)
-    # plt.subplot(2,2,4),plt.imshow(vein_mask_th[:300,:300], 'gray')
-    # plt.title("Laplacian therholded at > 1000", fontsize=30)
-    # plt.savefig("data/output/vein_comparison.png")
-    # plt.show()
     
     ## get leaf tissue
     tissue = np.where((marginless_veins == 0) & (blade == 255) & (margin == 0), 255, 0)
@@ -229,14 +194,7 @@ for batch in batchname_lst:
         partial_msk = partial_msk[:,:,None] # Add dimension for color
         multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
     
-    # msk_rgb = cv2.cvtColor(msk, cv2.COLOR_GRAY2RGB)
-    # plot_big2(multi_msk, msk_rgb)
-
-    # msk_rgb = np.where(msk_rgb == (255,255,255), (255,30,30), msk_rgb)
-    # overlay(multi_msk, msk_rgb)
-    # multi_msk = cv2.cvtColor(multi_msk.astype("uint8"), cv2.COLOR_RGB2BGR)
-    # cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
-    break
+    cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
 # %%
 ## Get vein mask
 blade_img = np.where(blade, img, 0)
@@ -248,8 +206,11 @@ vein_mask = np.where((lap_lower0 == 255) & (blade == 255), 255, 0)
 lap_lower_minus1000 = np.where(lap_img < -1000, 255, 0)
 vein_mask_th = np.where((lap_lower_minus1000 == 255) & (blade == 255), 255, 0)
 
-lap_lower_minus2000 = np.where(lap_img < -2500, 255, 0)
-vein_mask_lower2000 = np.where((lap_lower_minus2000 == 255) & (blade == 255), 255, 0)
+lap_lower_minus2500 = np.where(lap_img < -2500, 255, 0)
+vein_mask_lower2500 = np.where((lap_lower_minus2500 == 255) & (blade == 255), 255, 0)
+skeleton_veins = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
+veins = cv2.add(skeleton_veins,vein_mask_lower2500.astype("uint8") ) 
+
 
 marginless_veins = np.where((vein_mask_th == 255) & (margin == 0), 255, 0)
 
@@ -261,8 +222,11 @@ th_veins = np.where((blade == 255) & (margin == 0), th_veins, 0)
 noise_kernel = np.ones((2,2),np.uint8)
 th_veins_opened = cv2.morphologyEx(th_veins, cv2.MORPH_OPEN, noise_kernel)
 
-skeleton_veins = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
- 
+
+plot_big(veins[:500:,:500], title="added skeleton and lap lower -2500")
+cv2.imwrite("data/output/added_laplace_skeleton_gray.tif", veins[:300,:300])
+
+
 plt.figure(figsize=(25,25))
 plt.subplot(2,2,1),plt.imshow(img[:300,:300], 'gray')
 plt.title("Compton scatter image", fontsize=30)
@@ -289,6 +253,7 @@ vein_mask_lower2000_BGR = cv2.cvtColor(vein_mask_lower2000.astype("uint8"), cv2.
 addition = cv2.add(vein_mask_lower2000_BGR, skeleton_veins_BGR)
 add_ov = overlay(addition,img_BGR, alpha=0.5, beta=0.5)
 sub = cv2.subtract(img_BGR, addition)
+
 
 cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
 # plot_big(addition)
