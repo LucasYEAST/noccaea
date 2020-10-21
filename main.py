@@ -144,16 +144,15 @@ for batch in batchname_lst:
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
     petiole = ((msk != blade) * 255).astype("uint8")
-    large_contours = processing.contouring(petiole, area_th = 0.00001)
+    large_contours = processing.contouring(petiole, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
     petiole = processing.create_mask(petiole, large_contours)
-    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8")
+    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
     msk_dct["petiole"] = petiole
     
     # Assign blade + all unassigned pixels to blade
     blade = ((background + petiole) == 0) * 255
     blade = blade.astype("uint8")
     
-
     ## Get leaf margin
     margin_kernel = np.ones((5,5),np.uint8)
     gradient = cv2.morphologyEx(blade, cv2.MORPH_GRADIENT, margin_kernel)
@@ -172,7 +171,8 @@ for batch in batchname_lst:
     marginless_veins = np.where((veins == 255) & (blade == 255) & (margin == 0), 255, 0)
     msk_dct['vein'] = marginless_veins
     
-    ## get leaf tissue
+    ## get leaf tissue 
+    # TODO remove margin == 0 shouldn't matter
     tissue = np.where((marginless_veins == 0) & (blade == 255) & (margin == 0), 255, 0)
     msk_dct["tissue"] = tissue
     
