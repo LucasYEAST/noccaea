@@ -14,6 +14,9 @@ import pandas as pd
 import pickle
 import os
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+np.random.seed(69)
 
 RAW_TIFF_PATH = "data/raw_data/tiff/"
 RAW_TXT_PATH = "data/raw_data/txt/"
@@ -25,6 +28,8 @@ PLANT_IMG_PATH = "data/plant_img/"
 PLANT_MSK_PATH = "data/plant_msk/"
 PLANT_MULTIMSK_PATH = "data/plant_multimsk/"
 PLANT_ZIMG_PATH = "data/plant_Zimg/"
+PLANT_ZIMG_NOISE_PATH = "data/plant_Zimg_noise/"
+PLANT_KIMG_PATH = "data/plant_Kimg/"
 
 DF_SAVE_PATH = "data/Noccaea_processed.csv"
 POLY_DCT_PATH = "data/polygon_dict.pck"
@@ -286,8 +291,6 @@ cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
 
 
 # %% Create individual images per plant
-
-df = pd.read_csv(DF_SAVE_PATH, index_col=0)
 with open(POLY_DCT_PATH, "rb") as f:
     polygon_dct = pickle.load(f)
 
@@ -304,8 +307,10 @@ for batch in batchname_lst:
     multimsk = cv2.imread(multimsk_path) # Load as RGB
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
         
-    Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
-    Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)    
+    # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
+    # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
+    Kimg_path = RAW_TXT_PATH + batch + "- K.txt"    
+    Kimg = np.loadtxt(Kimg_path, delimiter=",", skiprows=1)
     
     # Dilate mask to include a strip of background around the plant Zimage
     kernel = np.ones((5,5),np.uint8)
@@ -318,7 +323,7 @@ for batch in batchname_lst:
         # Pad everything outside of polygon to black  TODO move function to module
         
         blacked_img = processing.poly_crop(img, polygon)
-        blacked_Zimg = processing.poly_crop(Zimg, polygon)
+        blacked_Zimg = processing.poly_crop(Kimg, polygon)
         blacked_msk = processing.poly_crop(msk, polygon)
         bged_multimsk = processing.poly_crop(multimsk, polygon, 
                                              col = (255,255,255), bg = msk_col_dct['background'])
@@ -341,19 +346,202 @@ for batch in batchname_lst:
         # Save images to right folder
         accession, replicate = acc_rep.split("_")
         fn = "_".join([batch, accession, replicate])
-        cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
-        cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
-        cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
-        np.savetxt(PLANT_ZIMG_PATH + fn + ".txt", plant_Zimg, fmt='%f', delimiter=",")
+        # cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
+        # cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
+        # cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
+        np.savetxt("data/plant_Kimg/" + fn + ".txt", plant_Zimg, fmt='%f', delimiter=",")
     
 # %% 4. Calculate concentration statistics
 
-df = pd.read_csv(DF_SAVE_PATH, index_col=0)
-substructure_lst = ["plant"] + obj_class_lst[1:] # All objects except background + whole plant
-subs_abs_colnames = [subs + "_abs" for subs in substructure_lst]
-subs_n_colnames = [subs + "_npixel" for subs in substructure_lst]
-subs_meanZ_colnames = [subs + "_meanZC" for subs in substructure_lst]
-subs_CQ_colnames = [subs + "_CQ" for subs in substructure_lst[1:]] # "plant" doesn't have a CQ
+# df = pd.read_csv(DF_SAVE_PATH, index_col=0)
+df = pd.read_csv("data/Noccaea_proc_Znoise100", index_col=0)
+substructure_lst = obj_class_lst[1:] # All objects except background + whole plant
+# substructure_lst += [name + "_noise10" for name in obj_class_lst[1:]]
+# substructure_lst += [name + "_noise20" for name in obj_class_lst[1:]]
+# substructure_lst += [name + "_noise50" for name in obj_class_lst[1:]]
+substructure_lst += [name + "_noise100" for name in obj_class_lst[1:]]
+substructure_lst += ["plant"]
+
+subs_abs_colnames = [subs + "_K_abs" for subs in substructure_lst]
+subs_n_colnames = [subs + "_K_npixel" for subs in substructure_lst]
+subs_meanZ_colnames = [subs + "_K_meanKC" for subs in substructure_lst]
+subs_CQ_colnames = [subs + "_K_CQ" for subs in substructure_lst[:-1]] # "plant" doesn't have a CQ
+
+METAL_PATH = PLANT_ZIMG_PATH
+
+for fn in os.listdir(PLANT_MSK_PATH):
+    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+    
+    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+    
+    metal_fn = fn.split(".")[0] + ".txt"
+    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
+    # Zimg_noise10 = np.genfromtxt(PLANT_ZIMG_NOISE_PATH + "10/" + Zfn, delimiter=",")
+    # Zimg_noise20 = np.genfromtxt(PLANT_ZIMG_NOISE_PATH + "20/" + Zfn, delimiter=",")
+    # Zimg_noise50 = np.genfromtxt(PLANT_ZIMG_NOISE_PATH + "50/" + Zfn, delimiter=",")
+    # Zimg_noise100 = np.genfromtxt(PLANT_ZIMG_NOISE_PATH + "100/" + Zfn, delimiter=",")
+
+    
+    abslst, npixlst, meanClst = [], [], []
+    # TODO write some tests to check if abs of all subs add up to total and such
+    for subs in substructure_lst:
+        if subs == "plant":
+            layer_msk = msk
+        else:
+            layer_msk = stats.get_layer(multimsk, msk_col_dct, subs.split("_")[0])
+        
+        if "noise10_" in subs:
+            img = Zimg_noise10
+        elif "noise20_" in subs:
+            img = Zimg_noise20
+        elif "noise50_" in subs:
+            img = Zimg_noise50
+        if "noise100_" in subs:
+            img = Zimg_noise100
+        else:
+            img = Zimg
+            
+        subs_Z_image = stats.get_sub_ele_img(img, layer_msk)
+        absZ, n_pixels, meanZC = stats.get_sub_ele_stats(subs_Z_image)
+        abslst.append(absZ)
+        npixlst.append(n_pixels)
+        meanClst.append(meanZC)
+        
+    df.loc[df["fn"] == fn, subs_abs_colnames] = absZlst
+    df.loc[df["fn"] == fn, subs_n_colnames] = npixlst
+    df.loc[df["fn"] == fn, subs_meanZ_colnames] = meanZClst
+
+df[subs_CQ_colnames] = df[subs_meanZ_colnames[:-1]].div(df["plant_meanZC"], axis=0)
+df.to_csv("data/Noccaea_proc_Znoise100.csv")
+# df.to_csv(DF_SAVE_PATH)
+# TODO One runtimewarning invalid value mean_C = abs_ele / n_pixels probably n_pixels = 0?
+
+# %% Review results for random insertion of class noise
+df = pd.read_csv("data/Noccaea_proc_Znoise.csv")
+sampled_accessions = list(set(np.random.choice(df['Accession #'], 25)))
+sample = df.loc[df['Accession #'].isin(sampled_accessions),:]
+
+plt.scatter(sample['Accession #'], sample["vein_CQ"], c="blue", label="CQ vein", s=3)
+# plt.scatter(sample['Accession #'], sample["vein_noise10_CQ"], c="orange", 
+#             label="CQ vein 10% rand intensity", s=3)
+plt.scatter(sample['Accession #'], sample["vein_noise20_CQ"], c="red", 
+            label="CQ vein 20% rand intensity", s=3)
+
+plt.ylabel("Concentration Quotient")
+plt.xlabel("accession label")
+plt.legend()
+plt.ylim(0.9,1.2)
+# plt.subplot((212))
+plt.savefig("data/output/plots/CQ normal vs random vein CQ.png")
+plt.show()
+
+
+plt.scatter(sample['Accession #'], sample["vein_meanZC"], c="blue", label="meanZC margin")
+# plt.scatter(sample['Accession #'], sample["vein_noise10_meanZC"], c="orange", label="meanZC vein 10% rand intensity")
+plt.scatter(sample['Accession #'], sample["vein_noise20_meanZC"], c="red", label="meanZC vein 20% rand intensity")
+
+plt.ylabel("mean pixel intensity")
+plt.xlabel("accession label")
+plt.legend()
+plt.savefig("data/output/plots/mean pixel intensity normal versus random vein.png")
+plt.show()
+
+# %% Scatter CQs against n_pixel and mean plant CQ
+df = pd.read_csv("data/Noccaea_proc_Znoise100.csv")
+df["accession_str"] = df['Accession #'].astype(str)
+
+
+subs_CQ = [ name + "_CQ" for name in obj_class_lst[1:] ]
+plt.figure(figsize=(10,10))
+for i,subs in enumerate(subs_CQ):
+    plt.subplot(2,2,i+1)
+    plt.scatter(df["plant_npixel"], df[subs], s=3)
+    plt.title(subs)
+    plt.xlabel("plant size [pixels]")
+    plt.ylabel("CQ")
+plt.savefig("data/output/plots/CQ versus plant size.png")
+plt.show()
+    
+
+plt.figure(figsize=(10,10))
+for i, subs in enumerate(subs_CQ):
+    plt.subplot(2,2, i+1)
+    plt.scatter(df["plant_meanZC"], df[subs], s=3)
+    plt.title(subs)
+    plt.xlabel("plant mean Zinc concentration")
+    plt.ylabel("CQ")
+plt.savefig("data/output/plots/CQ versus mean Zinc concentration.png")
+plt.show()
+
+# Adapt CQ by subtracting 1 and taking absolute value
+
+normean_abs_CQs = [name + "normean_abs_CQ" for name in obj_class_lst[1:]]
+CQs = [subs + "_CQ" for subs in obj_class_lst[1:]]
+df[normean_abs_CQs] = (df[CQs] - 1).abs()
+
+plt.figure(figsize=(10,10))
+for i, subs in enumerate(normean_abs_CQs):
+    plt.subplot(2,2, i+1)
+    plt.scatter(df["plant_meanZC"], df[subs], s=3)
+    plt.title(subs)
+    plt.xlabel("plant mean Zinc concentration")
+    plt.ylabel("mean normalized absolute CQ")
+plt.savefig("data/output/plots/mean-normalized absolute CQ versus mean Zinc concentration.png")
+plt.show()
+
+# %% scatter CQs against each other
+df = pd.read_csv("data/Noccaea_proc_Znoise.csv")
+df["accession_str"] = df['Accession #'].astype(str)
+pairplt_vars = [ name + "_CQ" for name in obj_class_lst[1:] ] + ['accession_str']
+df_noNAN = df.loc[df['batch'].notna(),:]
+
+from scipy.stats import pearsonr
+def corrfunc(x, y, **kws):
+    (r, p) = pearsonr(x, y)
+    ax = plt.gca()
+    ax.annotate("r = {:.2f} ".format(r),
+                xy=(.1, .9), xycoords=ax.transAxes)
+    ax.annotate("p = {:.3f}".format(p),
+                xy=(.4, .9), xycoords=ax.transAxes)
+
+g = sns.pairplot(df_noNAN[pairplt_vars]) # , hue='accession_str', palette='bright'
+g.map(corrfunc)
+# g._legend.remove()
+
+
+# %% Check whether means of subs sum up to mean of plant
+# CQ_cols =  [ name + "_CQ" for name in obj_class_lst[1:] ]
+# df["CQ_sum"] = df[CQ_cols].sum(axis=1)
+# plt.boxplot(df.loc[df['batch'].notna(), "CQ_sum"])
+
+mean_cols =  [ name + "_meanZC" for name in obj_class_lst[1:] ]
+npixel_cols = [ name + "_npixel" for name in obj_class_lst[1:] ]
+weighted_means = [ name + "_weightedZC" for name in obj_class_lst[1:] ]
+
+# Check if n_pixels add up
+subs_npixel = df[npixel_cols].sum(axis=1)
+df["diff_npixel"] = df["plant_npixel"] - subs_npixel
+plt.boxplot(df.loc[df['batch'].notna(), "diff_npixel"])
+
+# weighted_means
+df[weighted_means] = df[mean_cols] * df[npixel_cols]
+df["plant_meanZC_check"] = (df[weighted_means].sum(axis=1) / df['plant_npixel']) - df['plant_meanZC']
+plt.boxplot(df.loc[df['batch'].notna(), "plant_meanZC_check"])
+
+
+# df["mean_of_means"] = df[mean_cols].sum(axis=1) / len(mean_cols)
+
+
+# %% check if all mask pixels are assigned to a multimask layer
+
+
+# %% Absolute zinc of 500 pixels
+df = pd.read_csv("data/Noccaea_proc_K.csv", index_col=0)
+substructure_lst = obj_class_lst[1:] # All objects except background + whole plant
+substructure_lst += ["plant"]
+substructure_lst = [subs + "_absZ500pix" for subs in substructure_lst]
 
 for fn in os.listdir(PLANT_MSK_PATH):
     msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
@@ -363,43 +551,62 @@ for fn in os.listdir(PLANT_MSK_PATH):
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
     
     Zfn = fn.split(".")[0] + ".txt"
-    Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
+    Zimg = np.genfromtxt(PLANT_KIMG_PATH + Zfn, delimiter=",")
     
-    absZlst, npixlst, meanZClst = [], [], []
-    # TODO check get_sub_ele_stats for correctness
-    # TODO write some tests to check if abs of all subs add up to total and such
+    absZ500pix_lst = []
     for subs in substructure_lst:
-        if subs == "plant":
-            layer_msk = msk
-        # elif subs == "margin":
-        #     layer_msk = stats.get_layer(multimsk, msk_col_dct, subs)
-        #     layer_msk = insert_class_noise(layer_msk, .20)
-        else:
-            layer_msk = stats.get_layer(multimsk, msk_col_dct, subs)
-        subs_Z_image = stats.get_sub_ele_img(Zimg, layer_msk)
-        absZ, n_pixels, meanZC = stats.get_sub_ele_stats(subs_Z_image)
-        absZlst.append(absZ)
-        npixlst.append(n_pixels)
-        meanZClst.append(meanZC)
+       if "plant" in subs:
+           layer_msk = msk * 255
+       else:
+           layer_msk = stats.get_layer(multimsk, msk_col_dct, subs.split("_")[0])
+            
+       absZ500pix_lst.append(stats.XrandPixel_value(layer_msk, Zimg, fn, subs, 500))
+    df.loc[df["fn"] == fn, substructure_lst] = absZ500pix_lst
+
+df.to_csv("data/Noccaea_proc_K.csv")
+# %% check sizes of substructures
+
+    
+
+# %% Create df with random CQs to test
+phenotypes = ("plant_npixel","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
+genotype_n = 86
+genotype = np.repeat(range(genotype_n), 3)
+replicate = ["a","b","c"] * genotype_n
+
+random_df =  pd.DataFrame({"Accession..":genotype, "Biological.replicate":replicate})
+for pt in phenotypes:
+    random_df[pt] = np.random.random(len(random_df)) * 2
+    
+random_df.to_csv("data/random_CQs.csv")
+
+# %% Create noised Zimages
+
+# Per image create histogram of pixel intensity under mask and pick random values from 
+# histogram for x% of pixels
+for perc in [100]: #10, 20
+    for fn in os.listdir(PLANT_MSK_PATH):
+        # plant_msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+        # assert isinstance(plant_msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
         
-    df.loc[df["fn"] == fn, subs_abs_colnames] = absZlst
-    df.loc[df["fn"] == fn, subs_n_colnames] = npixlst
-    df.loc[df["fn"] == fn, subs_meanZ_colnames] = meanZClst
+        Zfn = fn.split(".")[0] + ".txt"
+        Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
+        Zimg_1D = Zimg.ravel()
+        hist = np.delete(Zimg_1D, np.argwhere(Zimg_1D == 0)) # Get all non-background values
+        N = int(Zimg.size * (perc / 100))
+        random_pixels = (np.random.randint(0, Zimg.shape[0] - 1, size=N), 
+                          np.random.randint(0, Zimg.shape[1] - 1, size=N))
+        random_values = np.random.choice(hist, size=N)
+        Zimg[random_pixels] = random_values
+        np.savetxt(PLANT_ZIMG_NOISE_PATH + str(perc) + "/" + Zfn, Zimg, fmt='%f', delimiter=",")
+        
+# %% rename files
+for fn in os.listdir(PLANT_ZIMG_NOISE_PATH + "10/"):
+    new_fn = fn.split(".")[0] + ".txt"
+    os.rename(PLANT_ZIMG_NOISE_PATH + "10/" + fn, PLANT_ZIMG_NOISE_PATH + "10/" + new_fn)
+    os.rename(PLANT_ZIMG_NOISE_PATH + "20/" + fn, PLANT_ZIMG_NOISE_PATH + "20/" + new_fn)
+    
 
-df[subs_CQ_colnames] = df[subs_meanZ_colnames[1:]].div(df["plant_meanZC"], axis=0)
-df.to_csv("data/Noccaea_proc_marginNoise20.csv")
-# df.to_csv(DF_SAVE_PATH)
-# TODO One runtimewarning invalid value mean_C = abs_ele / n_pixels probably n_pixels = 0?
-
-# %% Assign random class to x% of pixels
-
-def insert_class_noise(layer_msk, noise_fraction):
-    "changes x % of pixels of one class to a random class"
-    N = int(layer_msk.size * noise_fraction)
-    X_indices = np.random.randint(0,layer_msk.shape[0], size=N)
-    Y_indices = np.random.randint(0, layer_msk.shape[1], size=N)
-    layer_msk[X_indices, Y_indices] = 255
-    return layer_msk
     
     
     
