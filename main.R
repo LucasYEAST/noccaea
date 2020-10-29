@@ -7,24 +7,27 @@ library("doBy")
 library(lme4)
 library(ggplot2)
 #Noccaea_proc_Znoise100
-input <- read.csv("data/Noccaea_proc_K.csv", stringsAsFactors = T)
+input <- read.csv("data/Noccaea_proc_ZK.csv", stringsAsFactors = T)
 input <- input[input$batch != "",] # Removes unprocessed (batch 3 + root rows)
 
 input$rep <- as.factor(input$Biological.replicate)
 input$genotype <- as.factor(input$Accession..)
-phenotypes <- c("plant_npixel","plant_meanZC", "plant_absZ500pix",
-                "petiole_absZ500pix","margin_absZ500pix",
-                "vein_absZ500pix","tissue_absZ500pix")
-Plegend <- c("plant size", "mean Zn concentration", "plant_abs500pix",
-             "petiole_abs500pix","margin_abs500pix",
-             "vein_abs500pix","tissue_abs500pix")
+phenotypes <- c("rand_Z_CQ_10", "rand_Z_CQ_20",  "rand_Z_CQ_30",  "rand_Z_CQ_40")
+Plegend <- phenotypes
+# phenotypes <- c("plant_npixel","plant_K_meanC", "plant_K_abs500pix",
+#                 "petiole_K_abs500pix","margin_K_abs500pix",
+#                 "vein_K_abs500pix","tissue_K_abs500pix")
+# Plegend <- c("plant size", "mean K concentration", "plant_abs500pix",
+#              "petiole_abs500pix","margin_abs500pix",
+#              "vein_abs500pix","tissue_abs500pix")
 
-# phenotypes <- c("plant_npixel","plant_meanZC","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
+# phenotypes <- c("plant_npixel","plant_K_meanC","petiole_K_CQ","margin_K_CQ",
+#                 "vein_K_CQ","tissue_K_CQ")
 #                 # "petiole_noise10_CQ","margin_noise10_CQ","vein_noise10_CQ","tissue_noise10_CQ",
 #                 # "petiole_noise20_CQ","margin_noise20_CQ","vein_noise20_CQ","tissue_noise20_CQ",
 #                 # "petiole_noise50_CQ","margin_noise50_CQ","vein_noise50_CQ","tissue_noise50_CQ",
 #                 # "petiole_noise100_CQ","margin_noise100_CQ","vein_noise100_CQ","tissue_noise100_CQ")
-# Plegend <- c("plant size", "mean Zn concentration", "petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
+# Plegend <- c("plant size", "mean K concentration", "petiole K CQ","margin K CQ","vein K CQ","tissue_CQ")
 # sort(phenotypes)
 
 for (current_phenotype in phenotypes){
@@ -74,13 +77,13 @@ ggplot(data=result, aes(x=row.names(result), y=H2_percent, fill=row.names(result
   theme(legend.position = "none") +
   scale_x_discrete(breaks=phenotypes,
   labels=Plegend)
-ggsave("data/output/method_PP/CQ_kalium_H2.png") # Zimg_noise/H2.png
+# ggsave("data/output/rand_Z_H2.png") # Zimg_noise/H2.png
 
 # scatter plots for one phenotype
 sampled_accessions <- sample(input$Accession.., 15)
 input_plot <- input[input$Accession.. %in% sampled_accessions,]
 input_plot$Accession.. <- as.factor(input_plot$Accession..)
-ggplot(input_plot, aes(x=Accession.., y=margin_absZ500pix, color=Accession..)) + geom_point()
+ggplot(input_plot, aes(x=Accession.., y=rand_Z_CQ_40, color=Accession..)) + geom_point()
 
 sorted_result <- with(result,  result[order(row.names(result)) , ])
 
