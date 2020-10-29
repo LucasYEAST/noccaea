@@ -6,6 +6,7 @@ Created on Wed Sep 30 16:43:01 2020
 """
 import numpy as np
 import cv2
+import pickle
 
 # TODO maybe remove automatic thresholding functions, they seem to be not robust
 
@@ -75,40 +76,78 @@ def create_mask(img, contours):
     binary_mask = np.zeros(np.shape(img), dtype=np.uint8)
     cv2.drawContours(binary_mask, contours, -1, (255,255,255), -1)
     return binary_mask
-
-# Python program to extract rectangular 
-# Shape using OpenCV in Python3 https://www.geeksforgeeks.org/python-draw-rectangular-shape-and-extract-objects-using-opencv/
-
-# mouse callback function 
-# def draw_circle(event, x, y, flags, param): 
-# 	global ix, iy, drawing, mode 
-# 	
-# 	if event == cv2.EVENT_LBUTTONDOWN: 
-# 		drawing = True
-# 		ix, iy = x, y 
-# 	
-# 	elif event == cv2.EVENT_MOUSEMOVE: 
-# 		if drawing == True: 
-# 			if mode == True: 
-# 				cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 3) 
-# 				a = x 
-# 				b = y 
-# 				if a != x | b != y: 
-# 					cv2.rectangle(img, (ix, iy), (x, y), (0, 0, 0), -1) 
-# 			else: 
-# 				cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
-# 	
-# 	elif event == cv2.EVENT_LBUTTONUP: 
-# 		drawing = False
-# 		if mode == True: 
-# 			cv2.rectangle(img, (ix, iy), (x, y), (0, 255, 0), 2) 
-# 	
-# 		else: 
-# 			cv2.circle(img, (x, y), 5, (0, 0, 255), -1) 
 	
 def poly_crop(img, polygon, col = 255, bg = 0):
     stencil = np.zeros(img.shape).astype(img.dtype)
     cv2.fillPoly(stencil, polygon, col)
     res = np.where(stencil == 255, img, bg)
     return res
+
+# TODO this should be two or three separate functions
+# TODO rewrite comments
+def make_individual_plant_images(POLYGON_DCT_PATH, batchname_lst, RAW_TIFF_PATH, 
+                                 BATCH_MSK_PATH, BATCH_MULTIMSK_PATH, RAW_TXT_PATH, 
+                                 PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
+                                 metal, msk_col_dct, create_masks = False):
+    # Load the polygon coordinates
+    with open(POLYGON_DCT_PATH, "rb") as f:
+        polygon_dct = pickle.load(f)
+    
+    for batch in batchname_lst:    
+        img_path = RAW_TIFF_PATH + batch + "- Image.tif"
+        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
+        
+        msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
+        msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
+        
+        multimsk_path = BATCH_MULTIMSK_PATH + batch + "multimsk.tif"
+        multimsk = cv2.imread(multimsk_path) # Load as RGB
+        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
+            
+        # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
+        # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
+        metalimg_path = RAW_TXT_PATH + batch + "- " + metal + ".txt"    
+        metalimg = np.loadtxt(metalimg_path, delimiter=",", skiprows=1)
+        
+        # Dilate mask to include a strip of background around the plant Zimage
+        kernel = np.ones((5,5),np.uint8)
+        dil_msk = cv2.dilate(msk, kernel, iterations = 1)
+        
+        # Loop over polygon dictionaries
+        for acc_rep, polygon in polygon_dct[batch].items():
+            # Create mask/image name
+            accession, replicate = acc_rep.split("_")
+            fn = "_".join([batch, accession, replicate])
+            
+            # Crop img, Zimg, msk and multimsk using polygon
+            blacked_img = poly_crop(img, polygon)
+            blacked_metalimg = poly_crop(metalimg, polygon)
+            blacked_msk = poly_crop(msk, polygon)
+            bged_multimsk = poly_crop(multimsk, polygon, 
+                                                 col = (255,255,255), bg = msk_col_dct['background'])
+                
+            # Crop image to bounding box around polygon
+            x,y,w,h = cv2.boundingRect(blacked_img)
+            plant_dil_msk = dil_msk[y:y+h,x:x+w]
+            
+            if create_masks:
+                plant_msk = blacked_msk[y:y+h,x:x+w] * 255
+                
+                dirty_plant_img = blacked_img[y:y+h,x:x+w]
+                dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
+                
+                plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
+                plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
+                plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
+            
+                cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
+                cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
+                cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
+            
+            dirty_plant_metalimg = blacked_metalimg[y:y+h,x:x+w]
+            plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
+            np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
+
 

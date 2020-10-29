@@ -352,7 +352,27 @@ for batch in batchname_lst:
         # cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
         # cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
         np.savetxt("data/plant_Kimg/" + fn + ".txt", plant_Zimg, fmt='%f', delimiter=",")
+
+
+# %% 
+metals = ["metal_Zn", "metal_K", "metal_Ni", "metal_Ca"]
+substructures = obj_class_lst
+plant_fns = os.listdir(PLANT_MSK_PATH)
+
+# load plant mask and multi-mask
+# metals loop
+for metal in metals:
+    metal_name = metal.split()[1]
+    METAL_PATH = "data/plant_" + metal_name
     
+    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
+
+# load metal image
+
+# !ommiting noise levels loop
+# substructure loop
+# load correct mask
+
 # %% 4. Calculate concentration statistics
 
 # df = pd.read_csv(DF_SAVE_PATH, index_col=0)
@@ -646,7 +666,7 @@ for fn in os.listdir(PLANT_MSK_PATH):
     df.loc[df["fn"] == fn, subs_mean_colnames] = meanClst
 
 df[phenotypes] = df[subs_mean_colnames].div(df["plant_meanZC"], axis=0)
-# df.to_csv("data/Noccaea_proc_ZK.csv")
+df.to_csv("data/Noccaea_proc_ZK.csv")
     
     
     
