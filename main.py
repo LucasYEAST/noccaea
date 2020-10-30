@@ -293,133 +293,62 @@ cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
 
 
 # %% Create individual images per plant
-with open(POLY_DCT_PATH, "rb") as f:
-    polygon_dct = pickle.load(f)
+metals = ["Ni", "Ca"]
 
-for batch in batchname_lst:    
-    img_path = RAW_TIFF_PATH + batch + "- Image.tif"
-    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
-    
-    msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
-    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
-    
-    multimsk_path = BATCH_MULTIMSK_PATH + batch + "multimsk.tif"
-    multimsk = cv2.imread(multimsk_path) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
-        
-    # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
-    # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
-    Kimg_path = RAW_TXT_PATH + batch + "- K.txt"    
-    Kimg = np.loadtxt(Kimg_path, delimiter=",", skiprows=1)
-    
-    # Dilate mask to include a strip of background around the plant Zimage
-    kernel = np.ones((5,5),np.uint8)
-    dil_msk = cv2.dilate(msk, kernel, iterations = 1)
-    
-    # Loop over polygon dictionaries
-    for acc_rep, polygon in polygon_dct[batch].items():
-        
-        # Crop img, Zimg, msk and multimsk using polygon
-        # Pad everything outside of polygon to black  TODO move function to module
-        
-        blacked_img = processing.poly_crop(img, polygon)
-        blacked_Zimg = processing.poly_crop(Kimg, polygon)
-        blacked_msk = processing.poly_crop(msk, polygon)
-        bged_multimsk = processing.poly_crop(multimsk, polygon, 
-                                             col = (255,255,255), bg = msk_col_dct['background'])
-            
-        # Crop image to bounding box around polygon
-        x,y,w,h = cv2.boundingRect(blacked_img)
-        plant_dil_msk = dil_msk[y:y+h,x:x+w]
-        plant_msk = blacked_msk[y:y+h,x:x+w] * 255
-    
-        dirty_plant_img = blacked_img[y:y+h,x:x+w]
-        dirty_plant_Zimg = blacked_Zimg[y:y+h,x:x+w]
-        dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
-        
-        # Black out everything except for plant + a little edge of background
-        plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
-        plant_Zimg = np.where(plant_dil_msk == 1, dirty_plant_Zimg, 0)
-        plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
-        plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
-        
-        # Save images to right folder
-        accession, replicate = acc_rep.split("_")
-        fn = "_".join([batch, accession, replicate])
-        # cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
-        # cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
-        # cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
-        np.savetxt("data/plant_Kimg/" + fn + ".txt", plant_Zimg, fmt='%f', delimiter=",")
-
-
-# %% 
-metals = ["metal_Zn", "metal_K", "metal_Ni", "metal_Ca"]
-substructures = obj_class_lst
-plant_fns = os.listdir(PLANT_MSK_PATH)
-
-# load plant mask and multi-mask
-# metals loop
 for metal in metals:
-    metal_name = metal.split()[1]
-    METAL_PATH = "data/plant_" + metal_name
-    
-    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
+    processing.make_individual_plant_images(POLY_DCT_PATH, batchname_lst, RAW_TIFF_PATH, 
+                                 BATCH_MSK_PATH, BATCH_MULTIMSK_PATH, RAW_TXT_PATH, 
+                                 PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
+                                 metal, msk_col_dct, create_masks = False)
 
-# load metal image
+# %% Get stats from image
+metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+substructures = obj_class_lst[1:] + ["plant", "rand_5", "rand_10"]
+df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
 
-# !ommiting noise levels loop
-# substructure loop
-# load correct mask
-
-# %% 4. Calculate concentration statistics
-
-# df = pd.read_csv(DF_SAVE_PATH, index_col=0)
-# df = pd.read_csv("data/Noccaea_proc_Znoise100.csv", index_col=0)
-substructure_lst = obj_class_lst[1:] # All objects except background + whole plant
-substructure_lst += ["plant"]
-
-subs_abs_colnames = [subs + "_K_abs" for subs in substructure_lst]
-subs_n_colnames = [subs + "_K_npixel" for subs in substructure_lst]
-subs_mean_colnames = [subs + "_K_meanC" for subs in substructure_lst]
-subs_CQ_colnames = [subs + "_K_CQ" for subs in substructure_lst[:-1]] # "plant" doesn't have a CQ
-
-METAL_PATH = PLANT_KIMG_PATH
-
-for fn in os.listdir(PLANT_MSK_PATH):
+plant_fns = os.listdir(PLANT_MSK_PATH)
+# plant loop
+for fn in plant_fns:
+    # load plant mask and multi-mask
     msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
     
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+       
+    # metals loop
+    for metal in metals:
+        # load metal image
+        metal_name = metal.split("_")[1]
+        METAL_PATH = "data/plant_" + metal_name + "img/"
+        img = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
     
-    metal_fn = fn.split(".")[0] + ".txt"
-    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
+        # TODO noise levels loop (if still relevant)
+        # substructure loop
+        for substrct in substructures:
+           # load correct mask
+           if substrct == "plant":
+               layer_msk = msk
+           elif substrct == "rand_5":
+               layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "5/" + fn, cv2.IMREAD_GRAYSCALE)
+           elif substrct == "rand_10":
+               layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "10/" + fn, cv2.IMREAD_GRAYSCALE)
+           elif substrct in obj_class_lst[1:]:
+               layer_msk = stats.get_layer(multimsk, msk_col_dct, substrct)
+           else:
+               raise Exception("substructure: " + substrct + " is invalid")
+           subs_metal_image = stats.get_sub_ele_img(img, layer_msk)
+           abs_metal, n_pixels, meanC = stats.get_sub_ele_stats(subs_metal_image)
+           A500 = stats.XrandPixel_value(layer_msk, img, fn, substrct, 500)
+           colnames = ["_".join((metal, substrct, metric)) for metric in ["abs", "n_pix", "meanC", "A500"]]
+           df.loc[df["fn"] == fn, colnames] = [abs_metal, n_pixels, meanC, A500]
 
-    abslst, npixlst, meanClst = [], [], []
-    # TODO write some tests to check if abs of all subs add up to total and such
-    for subs in substructure_lst:
-        if subs == "plant":
-            layer_msk = msk
-        else:
-            layer_msk = stats.get_layer(multimsk, msk_col_dct, subs.split("_")[0])
-        
-            
-        subs_metal_image = stats.get_sub_ele_img(img, layer_msk)
-        abs_metal, n_pixels, meanC = stats.get_sub_ele_stats(subs_metal_image)
-        abslst.append(abs_metal)
-        npixlst.append(n_pixels)
-        meanClst.append(meanC)
-        
-    df.loc[df["fn"] == fn, subs_abs_colnames] = abslst
-    df.loc[df["fn"] == fn, subs_n_colnames] = npixlst
-    df.loc[df["fn"] == fn, subs_mean_colnames] = meanClst
-
-df[subs_CQ_colnames] = df[subs_mean_colnames[:-1]].div(df["plant_K_meanC"], axis=0)
-df.to_csv("data/Noccaea_proc_ZK.csv")
-
-# TODO One runtimewarning invalid value mean_C = abs_ele / n_pixels probably n_pixels = 0?
+        # Calculate CQ for all substructures
+        CQ_colnames = ["_".join((metal, substrct, "CQ")) for substrct in substructures]
+        mean_colnames = ["_".join((metal, substrct, "meanC")) for substrct in substructures]
+        plant_mean_colname = "_".join((metal, "plant", "meanC"))
+        df[CQ_colnames] = df[mean_colnames].div(df[plant_mean_colname], axis=0)
+df.to_csv("data/Noccaea_CQsA500.csv")
 
 # %% Review results for random insertion of class noise
 df = pd.read_csv("data/Noccaea_proc_Znoise.csv")
@@ -607,7 +536,7 @@ for perc in [100]: #10, 20
 # %% Create random substructure
 import random
 
-for N_pixels in [10, 20, 30, 40]:
+for N_pixels in [5]:
     for fn in os.listdir(PLANT_MSK_PATH):
         
         # Load plant mask
@@ -668,5 +597,18 @@ for fn in os.listdir(PLANT_MSK_PATH):
 df[phenotypes] = df[subs_mean_colnames].div(df["plant_meanZC"], axis=0)
 df.to_csv("data/Noccaea_proc_ZK.csv")
     
-    
+# %% Metal correlations
+metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+
+metal_cor_df = pd.DataFrame(columns = metals)
+Z, K, Ni, Ca = [], [], [], []
+
+plant_fns = os.listdir(PLANT_MSK_PATH)
+# plant loop
+for fn in plant_fns:       
+    # metals loop
+    for metal in metals:
+        
+
+
     

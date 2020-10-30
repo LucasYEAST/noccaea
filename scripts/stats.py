@@ -34,9 +34,11 @@ def insert_class_noise(layer_msk, noise_fraction):
     layer_msk[X_indices, Y_indices] = 255
     return layer_msk
 
+ 
+
 def XrandPixel_value(layer_msk, img, fn, subs, X):
     # Get indices of mask
-    x,y = np.where(layer_msk ==255 )
+    x,y = np.where(layer_msk > 0 )
     if len(x) < X:
         print(fn, "substructure: ", subs, "has fewer pixels than X: ", len(x))
         return np.nan
