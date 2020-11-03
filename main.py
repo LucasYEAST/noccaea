@@ -37,6 +37,7 @@ DF_SAVE_PATH = "data/Noccaea_processed.csv"
 POLY_DCT_PATH = "data/polygon_dict.pck"
 
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
+plant_fns = os.listdir(PLANT_MSK_PATH)
 
 obj_class_lst = ["background", "petiole", "margin", "vein", "tissue" ]
 msk_col_dct = get_colors(obj_class_lst)
@@ -100,6 +101,34 @@ for batch in batchname_lst:
                (df["Plant part"] == "shoot"), ["batch", "fn"]] = [batch, fn]
         df.to_csv(DF_SAVE_PATH)
         
+# %% Manually annotate leaf age
+
+# We want a multi-mask again per plant holds classes: background, "first leaf", "developing leaf", "developed leaf 1", "developed leaf 2"
+
+for fn in plant_fns:
+    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_fn)
+    
+    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+    
+    
+    
+    
+# Repeat blade segmentation
+
+# Separate blades in individual masks
+
+# Highlight within context of current plant
+
+# Manually annotate
+
+# Store these in a separate folder, treat like substructures and calculate CQ per substructure
+
+# Finally, we want some automated way for recognizing these leaves. We could do this two ways:
+    #a. Create a df (per leaf) with a set of numerical features that defines the leaf type / plant and train a NN or SVM on that
+        # Features; leaf_size / plant_size, number of leaves on plant, check some described papers
+    #b. Train a conv. NN on the leaf images
 
 # %% 1. Create batch foreground masks
 layers = ["Ca.tif", "K.tif", "Ni.tif",] # "Image.tif"
@@ -467,148 +496,6 @@ plt.boxplot(df.loc[df['batch'].notna(), "plant_meanZC_check"])
 
 
 # %% check if all mask pixels are assigned to a multimask layer
-
-
-# %% Absolute metal of 500 pixels
-df = pd.read_csv("data/Noccaea_proc_ZK.csv", index_col=0)
-substructure_lst = obj_class_lst[1:] # All objects except background + whole plant
-substructure_lst += ["plant"]
-substructure_lst = [subs + "_K_abs500pix" for subs in substructure_lst]
-
-METAL_PATH = PLANT_KIMG_PATH
-for fn in os.listdir(PLANT_MSK_PATH):
-    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
-    
-    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
-    
-    metal_fn = fn.split(".")[0] + ".txt"
-    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
-    
-    abs500pix_lst = []
-    for subs in substructure_lst:
-       if "plant" in subs:
-           layer_msk = msk * 255
-       else:
-           layer_msk = stats.get_layer(multimsk, msk_col_dct, subs.split("_")[0])
-       abs500pix_lst.append(stats.XrandPixel_value(layer_msk, img, metal_fn, subs, 500))
-
-    df.loc[df["fn"] == fn, substructure_lst] = abs500pix_lst
-
-df.to_csv("data/Noccaea_proc_ZK.csv")
-# %% check sizes of substructures
-
-    
-
-# %% Create df with random CQs to test
-phenotypes = ("plant_npixel","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
-genotype_n = 86
-genotype = np.repeat(range(genotype_n), 3)
-replicate = ["a","b","c"] * genotype_n
-
-random_df =  pd.DataFrame({"Accession..":genotype, "Biological.replicate":replicate})
-for pt in phenotypes:
-    random_df[pt] = np.random.random(len(random_df)) * 2
-    
-random_df.to_csv("data/random_CQs.csv")
-
-# %% Create noised Zimages
-
-# Per image create histogram of pixel intensity under mask and pick random values from 
-# histogram for x% of pixels
-for perc in [100]: #10, 20
-    for fn in os.listdir(PLANT_MSK_PATH):
-        # plant_msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-        # assert isinstance(plant_msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
-        
-        Zfn = fn.split(".")[0] + ".txt"
-        Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
-        Zimg_1D = Zimg.ravel()
-        hist = np.delete(Zimg_1D, np.argwhere(Zimg_1D == 0)) # Get all non-background values
-        N = int(Zimg.size * (perc / 100))
-        random_pixels = (np.random.randint(0, Zimg.shape[0] - 1, size=N), 
-                          np.random.randint(0, Zimg.shape[1] - 1, size=N))
-        random_values = np.random.choice(hist, size=N)
-        Zimg[random_pixels] = random_values
-        np.savetxt(PLANT_ZIMG_NOISE_PATH + str(perc) + "/" + Zfn, Zimg, fmt='%f', delimiter=",")
-        
-# %% Create random substructure
-import random
-
-for N_pixels in [5]:
-    for fn in os.listdir(PLANT_MSK_PATH):
-        
-        # Load plant mask
-        msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
-        
-        # Create empty mask
-        rand_msk = np.zeros(msk.shape, dtype="uint8")
-        
-        # Select 10 random pixels
-        x,y = np.where(msk == 1 )
-        i_lst = random.sample(range(len(x)), N_pixels)
-        rand_msk[x[i_lst], y[i_lst]] = 1
-        
-        # Dilate pixels (multiple times?)
-        kernel = np.ones((15,15),np.uint8)
-        dil_msk = cv2.dilate(rand_msk, kernel, iterations = 1)
-        
-        # Crop to plant mask
-        dil_msk = dil_msk & msk
-        dil_msk = dil_msk * 255
-        
-        cv2.imwrite(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  dil_msk)
-
-# %% Calculate CQ for random substructures 
-df = pd.read_csv("data/Noccaea_proc_ZK.csv", index_col=0)
-N_rand_pix_lst = [10, 20, 30, 40]
-phenotypes = ["rand_Z_CQ_" + str(npix) for npix in N_rand_pix_lst]
-subs_abs_colnames = ["rand_Z_abs_" + str(npix) for npix in N_rand_pix_lst]
-subs_n_colnames = ["rand_npixel_" + str(npix) for npix in N_rand_pix_lst]
-subs_mean_colnames = ["rand_Z_meanC_" + str(npix) for npix in N_rand_pix_lst]
-
-
-METAL_PATH = PLANT_ZIMG_PATH
-
-for fn in os.listdir(PLANT_MSK_PATH):
-    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
-    
-    metal_fn = fn.split(".")[0] + ".txt"
-    img = np.genfromtxt(METAL_PATH + metal_fn, delimiter=",")
-    
-    abslst, npixlst, meanClst = [], [], []
-    for N_pixels in N_rand_pix_lst:
-        rand_msk = cv2.imread(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-        assert isinstance(rand_msk, np.ndarray), "{} doesn't exsit".format(PLANT_RANDMSK_PATH + fn)
-    
-        subs_metal_image = stats.get_sub_ele_img(img, rand_msk)
-        abs_metal, n_pixels, meanC = stats.get_sub_ele_stats(subs_metal_image)
-        abslst.append(abs_metal)
-        npixlst.append(n_pixels)
-        meanClst.append(meanC)
-        
-    df.loc[df["fn"] == fn, subs_abs_colnames] = abslst
-    df.loc[df["fn"] == fn, subs_n_colnames] = npixlst
-    df.loc[df["fn"] == fn, subs_mean_colnames] = meanClst
-
-df[phenotypes] = df[subs_mean_colnames].div(df["plant_meanZC"], axis=0)
-df.to_csv("data/Noccaea_proc_ZK.csv")
-    
-# %% Metal correlations
-metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
-
-metal_cor_df = pd.DataFrame(columns = metals)
-Z, K, Ni, Ca = [], [], [], []
-
-plant_fns = os.listdir(PLANT_MSK_PATH)
-# plant loop
-for fn in plant_fns:       
-    # metals loop
-    for metal in metals:
-        
 
 
     

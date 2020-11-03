@@ -7,8 +7,11 @@ Created on Wed Sep 30 16:43:01 2020
 import numpy as np
 import cv2
 import pickle
+import pandas as pd
+import os
 
 # TODO maybe remove automatic thresholding functions, they seem to be not robust
+# TODO rewrite code on generating random substructues and other random stuff (moved it from main to here)
 
 # Apply masking method using automatic thresholding; https://theailearner.com/tag/image-thresholding/
 def balanced_hist_thresholding(b):
@@ -151,3 +154,62 @@ def make_individual_plant_images(POLYGON_DCT_PATH, batchname_lst, RAW_TIFF_PATH,
             np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
 
 
+# %% Create df with random CQs to test
+phenotypes = ("plant_npixel","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
+genotype_n = 86
+genotype = np.repeat(range(genotype_n), 3)
+replicate = ["a","b","c"] * genotype_n
+
+random_df =  pd.DataFrame({"Accession..":genotype, "Biological.replicate":replicate})
+for pt in phenotypes:
+    random_df[pt] = np.random.random(len(random_df)) * 2
+    
+random_df.to_csv("data/random_CQs.csv")
+
+# %% Create noised Zimages
+
+# Per image create histogram of pixel intensity under mask and pick random values from 
+# histogram for x% of pixels
+# for perc in [100]: #10, 20
+#     for fn in os.listdir(PLANT_MSK_PATH):
+#         # plant_msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+#         # assert isinstance(plant_msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+        
+#         Zfn = fn.split(".")[0] + ".txt"
+#         Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
+#         Zimg_1D = Zimg.ravel()
+#         hist = np.delete(Zimg_1D, np.argwhere(Zimg_1D == 0)) # Get all non-background values
+#         N = int(Zimg.size * (perc / 100))
+#         random_pixels = (np.random.randint(0, Zimg.shape[0] - 1, size=N), 
+#                           np.random.randint(0, Zimg.shape[1] - 1, size=N))
+#         random_values = np.random.choice(hist, size=N)
+#         Zimg[random_pixels] = random_values
+#         np.savetxt(PLANT_ZIMG_NOISE_PATH + str(perc) + "/" + Zfn, Zimg, fmt='%f', delimiter=",")
+        
+# # %% Create random substructure
+# import random
+
+# for N_pixels in [5]:
+#     for fn in os.listdir(PLANT_MSK_PATH):
+        
+#         # Load plant mask
+#         msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+#         assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+        
+#         # Create empty mask
+#         rand_msk = np.zeros(msk.shape, dtype="uint8")
+        
+#         # Select 10 random pixels
+#         x,y = np.where(msk == 1 )
+#         i_lst = random.sample(range(len(x)), N_pixels)
+#         rand_msk[x[i_lst], y[i_lst]] = 1
+        
+#         # Dilate pixels (multiple times?)
+#         kernel = np.ones((15,15),np.uint8)
+#         dil_msk = cv2.dilate(rand_msk, kernel, iterations = 1)
+        
+#         # Crop to plant mask
+#         dil_msk = dil_msk & msk
+#         dil_msk = dil_msk * 255
+        
+#         cv2.imwrite(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  dil_msk)

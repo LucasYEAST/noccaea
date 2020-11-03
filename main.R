@@ -12,13 +12,13 @@ input <- input[input$batch != "",] # Removes unprocessed (batch 3 + root rows)
 
 input$rep <- as.factor(input$Biological.replicate)
 input$genotype <- as.factor(input$Accession..)
-phenotypes <- c("plant_n_pix", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10")
+phenotypes <- c("plant_n_pix","plant_meanC", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10")
 metals <- c("metal_Z", "metal_K", "metal_Ni", "metal_Ca")
-metric <- "A500"
+metric <- "CQ"
 
 for (metal in metals){
   for (current_phenotype in phenotypes){
-    if (current_phenotype == "plant_n_pix"){
+    if ((current_phenotype == "plant_n_pix") | (current_phenotype == "plant_meanC")){
       colname <- paste(metal, current_phenotype, sep = "_")
     }
     else{
