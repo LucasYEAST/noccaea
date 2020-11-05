@@ -104,18 +104,62 @@ for batch in batchname_lst:
 # %% Manually annotate leaf age
 
 # We want a multi-mask again per plant holds classes: background, "first leaf", "developing leaf", "developed leaf 1", "developed leaf 2"
+with open("data/leaf_polygon_dct.pck", "rb") as f:
+    leaf_polygon_dct = pickle.load(f)
+
 
 for fn in plant_fns:
+    
+    if fn not in leaf_polygon_dct:
+        leaf_polygon_dct[fn] = {"status":"incomplete"}
+    elif leaf_polygon_dct[fn]["status"] == "complete":
+        print(fn, " = completed")
+        continue
+    print("working on: ", fn)
+        
     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_fn)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
     
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+    assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+    
+    # Find existing blade mask
+    blade_substructs = ["margin", "vein", "tissue"]
+    blade_msks = [stats.get_layer(multimsk, msk_col_dct, substrct) for substrct in blade_substructs]
+    blade_msk = np.array(blade_msks).sum(axis=0) > 0
+    
+    # Create individual contours and loop to review and annotate
+    # TODO: somehow contours seem to be to small, check overlap blade_msk and plant
+    # check overlap multimsk and img
+    contours = processing.contouring(blade_msk.astype("uint8"))
+    for cnt in contours:
+        cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
+        plot_big(cnt_img)
+        plt.show()
+    break
+    # Display contour on top of plant accept/reject & annotate leaf type
+    
+    
+     
+    # If leaf contour is not accepted:
+        # draw erronous contour
+        
+        # while still have to do leaves
+        
+            # roughly outline the individual leaves
+        
+            # For each closed outline annotate the leaf type
+        
+            # Use new outlines to select an appropriate portion of the blade_msk        
+    
+        # delete previous contour
+    
+    # store polygon in dict
+    
+    # If all leaves are done save status:"complete" in dict
     
     
     
-    
-# Repeat blade segmentation
 
 # Separate blades in individual masks
 
