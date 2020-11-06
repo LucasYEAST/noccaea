@@ -67,7 +67,6 @@ class PolygonDrawer(object):
                 self.done = True
 
         # User finised entering the polygon points, so let's make the final drawing
-        # canvas = np.zeros(CANVAS_SIZE, np.uint8)
         canvas = np.copy(self.img)
         # of a filled polygon
         if (len(self.points) > 0):

@@ -111,7 +111,13 @@ def make_individual_plant_images(POLYGON_DCT_PATH, batchname_lst, RAW_TIFF_PATH,
             
         # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
         # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
-        metalimg_path = RAW_TXT_PATH + batch + "- " + metal + ".txt"    
+        #TODO harmonize folder names, change Zimg to Znimg
+        if metal == "Z":
+            metal_raw_path = "Zn"
+        else:
+            metal_raw_path = metal
+            
+        metalimg_path = RAW_TXT_PATH + batch + "- " + metal_raw_path + ".txt"    
         metalimg = np.loadtxt(metalimg_path, delimiter=",", skiprows=1)
         
         # Dilate mask to include a strip of background around the plant Zimage
@@ -151,7 +157,8 @@ def make_individual_plant_images(POLYGON_DCT_PATH, batchname_lst, RAW_TIFF_PATH,
             
             dirty_plant_metalimg = blacked_metalimg[y:y+h,x:x+w]
             plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
-            np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
+            import pdb; pdb.set_trace()
+            # np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
 
 
 # %% Create df with random CQs to test

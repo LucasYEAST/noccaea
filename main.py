@@ -107,15 +107,21 @@ for batch in batchname_lst:
 with open("data/leaf_polygon_dct.pck", "rb") as f:
     leaf_polygon_dct = pickle.load(f)
 
+accepted_leaf_types = ["first", "grown_1", "grown_2", "developping"]
 
 for fn in plant_fns:
     
-    if fn not in leaf_polygon_dct:
-        leaf_polygon_dct[fn] = {"status":"incomplete"}
-    elif leaf_polygon_dct[fn]["status"] == "complete":
-        print(fn, " = completed")
-        continue
+    # if fn not in leaf_polygon_dct:
+    #     leaf_polygon_dct[fn] = {"status":"incomplete"}
+    # elif leaf_polygon_dct[fn]["status"] == "complete":
+    #     print(fn, " = completed")
+    #     continue
     print("working on: ", fn)
+    if fn in leaf_polygon_dct:
+        continue
+    else:
+        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        
         
     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
@@ -128,31 +134,51 @@ for fn in plant_fns:
     blade_msks = [stats.get_layer(multimsk, msk_col_dct, substrct) for substrct in blade_substructs]
     blade_msk = np.array(blade_msks).sum(axis=0) > 0
     
-    # Create individual contours and loop to review and annotate
-    # TODO: somehow contours seem to be to small, check overlap blade_msk and plant
-    # check overlap multimsk and img
+    # Review and potentially redraw leaf contours
     contours = processing.contouring(blade_msk.astype("uint8"))
+    accepted_contours = []
     for cnt in contours:
         cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
         plot_big(cnt_img)
-        plt.show()
-    break
+        answer = input("Accept contour? (y/ENTER/n): ")
+        if answer == "n":
+            status = "pending"
+            while status != "done":
+                # Draw polygon
+                pdrawer = draw.PolygonDrawer("draw polygon", cnt_img)
+                polygon = pdrawer.run()
+                
+                # Crop blade mask with hand-drawn polygon
+                binary_mask = np.zeros(np.shape(img), dtype=np.uint8)
+                polygon_msk = cv2.drawContours(binary_mask, [polygon], 0, (255,255,255), -1) #Check if indeed this draws a mask
+                manual_blade_msk = (polygon_msk > 0) & (blade_msk > 0 )
+                bl_msk_cnts = processing.contouring(manual_blade_msk.astype("uint8"))
+                new_cnt_img = cv2.drawContours(img.copy(), bl_msk_cnts, 0, (0,255,0), 1)
+                plot_big(new_cnt_img)
+                if input("accept new polygon? (y/n)") == "y":
+                    accepted_contours.append(bl_msk_cnts)
+                
+                status = input("done subdividing mask? (done/other input): ")
+        else:
+            accepted_contours.append(cnt)
+            
+    # Annotate accepted contours
+    for cnt in accepted_contours:
+        cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
+        plot_big(cnt_img)
+        answer = input("leaf type? ")
+        assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
+        leaf_polygon_dct[fn][answer].append(cnt)
+        
+    # with open("data/leaf_polygon_dct.pck", "wb") as f:
+    #     pickle.dump(leaf_polygon_dct, f)
+    import pdb; pdb.set_trace()
+    
     # Display contour on top of plant accept/reject & annotate leaf type
     
     
      
-    # If leaf contour is not accepted:
-        # draw erronous contour
-        
-        # while still have to do leaves
-        
-            # roughly outline the individual leaves
-        
-            # For each closed outline annotate the leaf type
-        
-            # Use new outlines to select an appropriate portion of the blade_msk        
-    
-        # delete previous contour
+
     
     # store polygon in dict
     
@@ -220,7 +246,8 @@ for batch in batchname_lst:
     blade_kernel = np.ones((15,15),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-     
+    
+    
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
     petiole = ((msk != blade) * 255).astype("uint8")
@@ -366,13 +393,13 @@ cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
 
 
 # %% Create individual images per plant
-metals = ["Ni", "Ca"]
+metals = ["Z"]
 
 for metal in metals:
     processing.make_individual_plant_images(POLY_DCT_PATH, batchname_lst, RAW_TIFF_PATH, 
                                  BATCH_MSK_PATH, BATCH_MULTIMSK_PATH, RAW_TXT_PATH, 
                                  PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
-                                 metal, msk_col_dct, create_masks = False)
+                                 metal, msk_col_dct, create_masks = True)
 
 # %% Get stats from image
 metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
