@@ -109,6 +109,14 @@ with open("data/leaf_polygon_dct.pck", "rb") as f:
 
 accepted_leaf_types = ["first", "grown_1", "grown_2", "developping"]
 
+# TODO; make sure that when continuing from last save that all leaves of prvious plant
+# have been counted; currently if you quit mid-plant it will skip to next plant
+# Maybe also randomize the fns using a seed so that we get some random planties to play with
+# TODO; create leaf multi-masks using a new color scheme
+import random
+random.seed(1)
+random.shuffle(plant_fns)
+
 for fn in plant_fns:
     
     # if fn not in leaf_polygon_dct:
@@ -117,10 +125,17 @@ for fn in plant_fns:
     #     print(fn, " = completed")
     #     continue
     print("working on: ", fn)
-    if fn in leaf_polygon_dct:
+    if fn not in leaf_polygon_dct:
+        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        leaf_polygon_dct[fn]["status"] = "pending"
+    elif leaf_polygon_dct[fn]["status"] == "pending":
+        pass
+        # leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        # leaf_polygon_dct[fn]["status"] = "pending"
+    elif leaf_polygon_dct[fn]["status"] == "done":
         continue
     else:
-        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        print("Something weird is happening")      
         
         
     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
@@ -140,8 +155,10 @@ for fn in plant_fns:
     for cnt in contours:
         cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
         plot_big(cnt_img)
-        answer = input("Accept contour? (y/ENTER/n): ")
-        if answer == "n":
+        answer = input("Accept contour? (y/ENTER/n/skip): ")
+        if answer == "skip":
+            continue
+        elif answer == "n":
             status = "pending"
             while status != "done":
                 # Draw polygon
@@ -152,46 +169,26 @@ for fn in plant_fns:
                 binary_mask = np.zeros(np.shape(img), dtype=np.uint8)
                 polygon_msk = cv2.drawContours(binary_mask, [polygon], 0, (255,255,255), -1) #Check if indeed this draws a mask
                 manual_blade_msk = (polygon_msk > 0) & (blade_msk > 0 )
-                bl_msk_cnts = processing.contouring(manual_blade_msk.astype("uint8"))
-                new_cnt_img = cv2.drawContours(img.copy(), bl_msk_cnts, 0, (0,255,0), 1)
+                bl_msk_cnt = processing.contouring(manual_blade_msk.astype("uint8"))[0]
+                new_cnt_img = cv2.drawContours(img.copy(), [bl_msk_cnt], 0, (0,255,0), 1)
                 plot_big(new_cnt_img)
-                if input("accept new polygon? (y/n)") == "y":
-                    accepted_contours.append(bl_msk_cnts)
-                
-                status = input("done subdividing mask? (done/other input): ")
+                if not input("accept new polygon? (y/n)") == "n":
+                    answer = input("leaf type? ")
+                    assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
+                    leaf_polygon_dct[fn][answer].append(bl_msk_cnt)
+                    with open("data/leaf_polygon_dct.pck", "wb") as f:
+                        pickle.dump(leaf_polygon_dct, f)
+                status = input("done? ")
         else:
-            accepted_contours.append(cnt)
-            
-    # Annotate accepted contours
-    for cnt in accepted_contours:
-        cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
-        plot_big(cnt_img)
-        answer = input("leaf type? ")
-        assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
-        leaf_polygon_dct[fn][answer].append(cnt)
+            answer = input("leaf type? ")
+            assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
+            leaf_polygon_dct[fn][answer].append(cnt)
+            with open("data/leaf_polygon_dct.pck", "wb") as f:
+                pickle.dump(leaf_polygon_dct, f)
+    leaf_polygon_dct[fn]["status"] = "done"
+    with open("data/leaf_polygon_dct.pck", "wb") as f:
+        pickle.dump(leaf_polygon_dct, f)
         
-    # with open("data/leaf_polygon_dct.pck", "wb") as f:
-    #     pickle.dump(leaf_polygon_dct, f)
-    import pdb; pdb.set_trace()
-    
-    # Display contour on top of plant accept/reject & annotate leaf type
-    
-    
-     
-
-    
-    # store polygon in dict
-    
-    # If all leaves are done save status:"complete" in dict
-    
-    
-    
-
-# Separate blades in individual masks
-
-# Highlight within context of current plant
-
-# Manually annotate
 
 # Store these in a separate folder, treat like substructures and calculate CQ per substructure
 
