@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import os
+import random
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -29,18 +30,24 @@ PLANT_MSK_PATH = "data/plant_msk/"
 PLANT_MULTIMSK_PATH = "data/plant_multimsk/"
 PLANT_RANDMSK_PATH = "data/plant_randmsk/"
 
+LEAF_MULTIMSK_PATH = "data/leaf_multimsk/"
+
 PLANT_ZIMG_PATH = "data/plant_Zimg/"
 PLANT_ZIMG_NOISE_PATH = "data/plant_Zimg_noise/"
 PLANT_KIMG_PATH = "data/plant_Kimg/"
 
 DF_SAVE_PATH = "data/Noccaea_processed.csv"
 POLY_DCT_PATH = "data/polygon_dict.pck"
+LEAFPOLY_DCT_PATH = "data/leaf_polygon_dct.pck"
 
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
 plant_fns = os.listdir(PLANT_MSK_PATH)
 
 obj_class_lst = ["background", "petiole", "margin", "vein", "tissue" ]
-msk_col_dct = get_colors(obj_class_lst)
+msk_col_dct = get_colors(obj_class_lst, "Set2")
+
+leaf_types = ["first", "grown_1", "grown_2", "developping"]
+leafmsk_col_dct = get_colors(leaf_types, "hls")
 
 
 hex_msk_col_dct = {k:'#{:02x}{:02x}{:02x}'.format(v[2],v[1],v[0]) for k,v in msk_col_dct.items()}
@@ -104,21 +111,21 @@ for batch in batchname_lst:
 # %% Manually annotate leaf age
 
 # We want a multi-mask again per plant holds classes: background, "first leaf", "developing leaf", "developed leaf 1", "developed leaf 2"
-with open("data/leaf_polygon_dct.pck", "rb") as f:
+with open(LEAFPOLY_DCT_PATH, "rb") as f:
     leaf_polygon_dct = pickle.load(f)
 
-accepted_leaf_types = ["first", "grown_1", "grown_2", "developping"]
 
 # TODO; make sure that when continuing from last save that all leaves of prvious plant
 # have been counted; currently if you quit mid-plant it will skip to next plant
 # Maybe also randomize the fns using a seed so that we get some random planties to play with
 # TODO; create leaf multi-masks using a new color scheme
-import random
-random.seed(1)
-random.shuffle(plant_fns)
+# random.seed(1)
+# random.shuffle(plant_fns)
+leaf_polygon_dct["Batch1 _5_a.tif"]
 
-for fn in plant_fns:
-    
+for fn in range(1):#plant_fns:
+    fn = "Batch1 _5_a.tif"
+    leaf_polygon_dct[fn]["status"] = "pending"
     # if fn not in leaf_polygon_dct:
     #     leaf_polygon_dct[fn] = {"status":"incomplete"}
     # elif leaf_polygon_dct[fn]["status"] == "complete":
@@ -126,11 +133,11 @@ for fn in plant_fns:
     #     continue
     print("working on: ", fn)
     if fn not in leaf_polygon_dct:
-        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
         leaf_polygon_dct[fn]["status"] = "pending"
     elif leaf_polygon_dct[fn]["status"] == "pending":
         pass
-        # leaf_polygon_dct[fn] = {leaftype:[] for leaftype in accepted_leaf_types}
+        # leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
         # leaf_polygon_dct[fn]["status"] = "pending"
     elif leaf_polygon_dct[fn]["status"] == "done":
         continue
@@ -174,22 +181,64 @@ for fn in plant_fns:
                 plot_big(new_cnt_img)
                 if not input("accept new polygon? (y/n)") == "n":
                     answer = input("leaf type? ")
-                    assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
+                    assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
+                    assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
                     leaf_polygon_dct[fn][answer].append(bl_msk_cnt)
-                    with open("data/leaf_polygon_dct.pck", "wb") as f:
+                    with open(LEAFPOLY_DCT_PATH, "wb") as f:
                         pickle.dump(leaf_polygon_dct, f)
                 status = input("done? ")
         else:
             answer = input("leaf type? ")
-            assert answer in accepted_leaf_types, "{} is not an accepted leaf type".format(answer)
+            assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
+            assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
             leaf_polygon_dct[fn][answer].append(cnt)
-            with open("data/leaf_polygon_dct.pck", "wb") as f:
+            with open(LEAFPOLY_DCT_PATH, "wb") as f:
                 pickle.dump(leaf_polygon_dct, f)
     leaf_polygon_dct[fn]["status"] = "done"
-    with open("data/leaf_polygon_dct.pck", "wb") as f:
+    with open(LEAFPOLY_DCT_PATH, "wb") as f:
         pickle.dump(leaf_polygon_dct, f)
         
+# %% Create leaf multimask
+with open(LEAFPOLY_DCT_PATH, "rb") as f:
+    leaf_polygon_dct = pickle.load(f)
 
+for fn in leaf_polygon_dct.keys():
+    # Load leaf image and create empty leaf_multimsk
+    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+    leaf_multimsk = np.zeros((img.shape[0], img.shape[1], 3))
+
+    # Iterate over leaf classes in random order and assign color to empty image
+    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+        for polygon in leaf_polygon_dct[fn][leaf_class]:
+            cv2.drawContours(leaf_multimsk, [polygon], 0, leafmsk_col_dct[leaf_class], -1)
+    
+    cv2.imwrite(LEAF_MULTIMSK_PATH + fn, leaf_multimsk.astype("uint8"))
+
+
+# %% Output annotated leaf examples
+
+# For img, polygon, find max. coord (bottom-right) print name on picture
+for fn in leaf_polygon_dct.keys():
+    # Load leaf image and create empty leaf_multimsk
+    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+    
+    canvas = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+        for polygon in leaf_polygon_dct[fn][leaf_class]:
+            cv2.drawContours(canvas, [polygon], 0, leafmsk_col_dct[leaf_class], 3)
+            
+    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+        for polygon in leaf_polygon_dct[fn][leaf_class]:
+            max_x = polygon[:,:,0].min()
+            max_y = polygon[:,:,1].min()
+            cv2.putText(canvas, leaf_class, (max_x,max_y), cv2.FONT_HERSHEY_SIMPLEX,
+                        .5,(255,255,255), 2)
+    
+    cv2.imwrite("data/output/leaf_msk_examples/" + fn, canvas)
+    
+    
 # Store these in a separate folder, treat like substructures and calculate CQ per substructure
 
 # Finally, we want some automated way for recognizing these leaves. We could do this two ways:
@@ -448,7 +497,7 @@ for fn in plant_fns:
 df.to_csv("data/Noccaea_CQsA500.csv")
 
 # %% Review results for random insertion of class noise
-df = pd.read_csv("data/Noccaea_proc_Znoise.csv")
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
 sampled_accessions = list(set(np.random.choice(df['Accession #'], 25)))
 sample = df.loc[df['Accession #'].isin(sampled_accessions),:]
 
@@ -478,7 +527,7 @@ plt.savefig("data/output/plots/mean pixel intensity normal versus random vein.pn
 plt.show()
 
 # %% Scatter CQs against n_pixel and mean plant CQ
-df = pd.read_csv("data/Noccaea_proc_Znoise100.csv")
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
 df["accession_str"] = df['Accession #'].astype(str)
 
 
@@ -521,7 +570,7 @@ plt.savefig("data/output/plots/mean-normalized absolute CQ versus mean Zinc conc
 plt.show()
 
 # %% scatter CQs against each other
-df = pd.read_csv("data/Noccaea_proc_Znoise.csv")
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
 df["accession_str"] = df['Accession #'].astype(str)
 pairplt_vars = [ name + "_CQ" for name in obj_class_lst[1:] ] + ['accession_str']
 df_noNAN = df.loc[df['batch'].notna(),:]
@@ -538,6 +587,25 @@ def corrfunc(x, y, **kws):
 g = sns.pairplot(df_noNAN[pairplt_vars]) # , hue='accession_str', palette='bright'
 g.map(corrfunc)
 # g._legend.remove()
+
+# %% Scatter CQ against relative proportion of 
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+substructures = obj_class_lst[1:]
+metal = "metal_Z"
+plt.figure(figsize=(10,10))
+for i, substrct in enumerate(substructures):
+    sbstrct_area = "_".join((metal, substrct, "n_pix"))
+    plant_area = "_".join((metal, "plant", "n_pix"))
+    rel_strct_area = df[sbstrct_area] / df[plant_area] * 100
+    substrct_CQ = "_".join((metal, substrct, "CQ"))
+
+    
+    plt.subplot(2,2,i+1)
+    plt.scatter(rel_strct_area, df[substrct_CQ], s=2)
+    plt.xlabel("relative substructure area [%]")
+    plt.ylabel("CQ")
+    plt.title(substrct)
+plt.show()
 
 
 # %% Check whether means of subs sum up to mean of plant
@@ -565,5 +633,69 @@ plt.boxplot(df.loc[df['batch'].notna(), "plant_meanZC_check"])
 
 # %% check if all mask pixels are assigned to a multimask layer
 
+# %% create mask r-cnn dictionary and images
+# TODO first got id "0" this should be reserved for bg right?
 
+from skimage import io
+from skimage import color
+from seaborn import color_palette
+
+# Create images from polygons
+with open(LEAFPOLY_DCT_PATH, "rb") as f:
+    leaf_polydct = pickle.load(f)
+
+
+# Create forward leaf type color dct
+leaftypes_rep2 = []
+for leaftype in leaf_types:
+    leaftypes_rep2.extend([leaftype, leaftype])
+
+cols = color_palette("hls", 8)
+fwd_coldct = {leaftype:[] for leaftype in leaf_types}
+bwd_coldct = {}
+
+for i, col, lt in zip(range(len(cols)), cols, leaftypes_rep2):
+    col = tuple([int(x * 255) for x in col])
+    fwd_coldct[lt].append(col)
+    bwd_coldct[col] = (lt, i)
+
+with open("data/output/ML_imgs/col_classid_dct.pck", "wb") as f:
+    pickle.dump(bwd_coldct, f)
+
+ML_msk_path =  "data/output/ML_imgs/mask/"
+ML_img_path = "data/output/ML_imgs/image/"
+
+for fn in leaf_polydct.keys():
+    plant_img = io.imread(PLANT_IMG_PATH + fn)
+    img_rgb = color.gray2rgb(plant_img)
+
+    mrcnn_msk = np.zeros((plant_img.shape[0], plant_img.shape[1], 3))
     
+    for leaftype in leaf_types: # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+        for i,polygon in enumerate(leaf_polygon_dct[fn][leaftype]):
+            cv2.drawContours(mrcnn_msk, [polygon], 0, fwd_coldct[leaftype][i], -1)
+    
+    # plt.subplot(2,1,1)
+    # plt.imshow(mrcnn_msk.astype("int32"))
+    # plt.subplot(2,1,2)
+    # plt.imshow(img_rgb)
+    # break
+    io.imsave(ML_msk_path + fn.split(".")[0] + "_label.png", mrcnn_msk.astype("uint8"))
+    io.imsave(ML_img_path + fn.split(".")[0] + "_rgb.png", img_rgb)
+    
+
+mask = []
+img = io.imread(ML_msk_path + fn.split(".")[0] + "_label.png")
+img_colors = np.unique(img.reshape(-1, img.shape[2]), axis=0, return_inverse=True)
+background = np.array([0,0,0]) # Background is black
+class_id_lst = []
+for i, color in enumerate(img_colors[0]):
+    if (color != background).any():
+        bin_mask = np.where(img_colors[1] == i, True, False).astype(int)
+        bin_mask = np.reshape(bin_mask, img.shape[:2]) # Shape back to 2D
+        class_name = bwd_coldct[tuple(color)][0]
+        class_id = bwd_coldct[tuple(color)][1]
+        plt.imshow(bin_mask)
+        plt.title(class_name + " " + str(class_id))
+        plt.show()
+        mask.append(bin_mask)
