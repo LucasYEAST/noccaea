@@ -284,40 +284,22 @@ for batch in batchname_lst:
     msk_dct["background"] = background
     
     # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
-    blade_kernel = np.ones((21,21),np.uint8)
+    blade_kernel = np.ones((15,15),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-    plot_big(blade[:800,:800])    
+    
     
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
-    # petiole = ((msk != blade) * 255).astype("uint8")
-    # plot_big(opened_pet[:800, :800])          
-    # large_contours = processing.contouring(opened_pet, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
-    # petiole = processing.create_mask(opened_pet, large_contours)
-    
-    # petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
-    # plot_big(petiole[:800, :800])
-
-    petiole_tophatkernel = np.ones((11,11), np.uint8)
-    petiole = cv2.morphologyEx(msk, cv2.MORPH_TOPHAT, petiole_tophatkernel)
-    plot_big(petiole[:800,:800])
-
-    petiole_openingkernel = np.ones((5,5), np.uint8)
-    petiole = cv2.morphologyEx(petiole, cv2.MORPH_OPEN, petiole_openingkernel)
-    
-    plot_big(petiole[:800,:800])
-    plot_big(img[:800, :800])  
-    
-    
-    # plot_big(petiole[:800,:800])
+    petiole = ((msk != blade) * 255).astype("uint8")
+    large_contours = processing.contouring(petiole, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
+    petiole = processing.create_mask(petiole, large_contours)
+    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
     msk_dct["petiole"] = petiole
     
     # Assign blade + all unassigned pixels to blade
     blade = ((background + petiole) == 0) * 255
     blade = blade.astype("uint8")
-    # plot_big(blade[:800,:800])
-    
     
     ## Get leaf margin
     margin_kernel = np.ones((5,5),np.uint8)
@@ -360,8 +342,7 @@ for batch in batchname_lst:
         partial_msk = partial_msk[:,:,None] # Add dimension for color
         multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
     
-    break
-    # cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
+    cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
 
 
 # %% Create individual images per plant
