@@ -16,6 +16,8 @@ import os
 import random
 import matplotlib.pyplot as plt
 import seaborn as sns
+sns.set_style("ticks")
+sns.set(font_scale=1.3)
 
 np.random.seed(69)
 
@@ -42,9 +44,18 @@ LEAFPOLY_DCT_PATH = "data/leaf_polygon_dct.pck"
 
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
 plant_fns = os.listdir(PLANT_MSK_PATH)
+rand_plant_fns = plant_fns.copy()
+random.shuffle(rand_plant_fns)
+
 
 obj_class_lst = ["background", "petiole", "margin", "vein", "tissue" ]
 msk_col_dct = get_colors(obj_class_lst, "Set2")
+msk_hex_palette = sns.color_palette(['#%02x%02x%02x' % (msk_col_dct[key][2], msk_col_dct[key][1], msk_col_dct[key][0]) \
+                                     for key in obj_class_lst]) # BGR -> RGB -> HEX -> sns palette
+msk_hex_palette = dict(zip(obj_class_lst, msk_hex_palette))
+
+
+
 
 leaf_types = ["first", "grown_1", "grown_2", "developping"]
 leafmsk_col_dct = get_colors(leaf_types, "hls")
@@ -114,31 +125,15 @@ for batch in batchname_lst:
 with open(LEAFPOLY_DCT_PATH, "rb") as f:
     leaf_polygon_dct = pickle.load(f)
 
+for fn in rand_plant_fns:
 
-# TODO; make sure that when continuing from last save that all leaves of prvious plant
-# have been counted; currently if you quit mid-plant it will skip to next plant
-# Maybe also randomize the fns using a seed so that we get some random planties to play with
-# TODO; create leaf multi-masks using a new color scheme
-# random.seed(1)
-# random.shuffle(plant_fns)
-leaf_polygon_dct["Batch1 _5_a.tif"]
-
-for fn in range(1):#plant_fns:
-    fn = "Batch1 _5_a.tif"
-    leaf_polygon_dct[fn]["status"] = "pending"
-    # if fn not in leaf_polygon_dct:
-    #     leaf_polygon_dct[fn] = {"status":"incomplete"}
-    # elif leaf_polygon_dct[fn]["status"] == "complete":
-    #     print(fn, " = completed")
-    #     continue
     print("working on: ", fn)
     if fn not in leaf_polygon_dct:
         leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
         leaf_polygon_dct[fn]["status"] = "pending"
     elif leaf_polygon_dct[fn]["status"] == "pending":
-        pass
-        # leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
-        # leaf_polygon_dct[fn]["status"] = "pending"
+        for k,v in leaf_polygon_dct[fn].items():
+            print(k, ": ", len(v))
     elif leaf_polygon_dct[fn]["status"] == "done":
         continue
     else:
@@ -289,22 +284,40 @@ for batch in batchname_lst:
     msk_dct["background"] = background
     
     # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
-    blade_kernel = np.ones((15,15),np.uint8)
+    blade_kernel = np.ones((21,21),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-    
+    plot_big(blade[:800,:800])    
     
     # Now get the petiole masks by subtracting the blade from the whole plant mask 
     # followed by another smaller kernel opening
-    petiole = ((msk != blade) * 255).astype("uint8")
-    large_contours = processing.contouring(petiole, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
-    petiole = processing.create_mask(petiole, large_contours)
-    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
+    # petiole = ((msk != blade) * 255).astype("uint8")
+    # plot_big(opened_pet[:800, :800])          
+    # large_contours = processing.contouring(opened_pet, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
+    # petiole = processing.create_mask(opened_pet, large_contours)
+    
+    # petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
+    # plot_big(petiole[:800, :800])
+
+    petiole_tophatkernel = np.ones((11,11), np.uint8)
+    petiole = cv2.morphologyEx(msk, cv2.MORPH_TOPHAT, petiole_tophatkernel)
+    plot_big(petiole[:800,:800])
+
+    petiole_openingkernel = np.ones((5,5), np.uint8)
+    petiole = cv2.morphologyEx(petiole, cv2.MORPH_OPEN, petiole_openingkernel)
+    
+    plot_big(petiole[:800,:800])
+    plot_big(img[:800, :800])  
+    
+    
+    # plot_big(petiole[:800,:800])
     msk_dct["petiole"] = petiole
     
     # Assign blade + all unassigned pixels to blade
     blade = ((background + petiole) == 0) * 255
     blade = blade.astype("uint8")
+    # plot_big(blade[:800,:800])
+    
     
     ## Get leaf margin
     margin_kernel = np.ones((5,5),np.uint8)
@@ -347,95 +360,8 @@ for batch in batchname_lst:
         partial_msk = partial_msk[:,:,None] # Add dimension for color
         multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
     
-    cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
-# %%
-## Get vein mask
-blade_img = np.where(blade, img, 0)
-lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
-
-lap_lower0 = np.where(lap_img < 0, 255, 0)
-vein_mask = np.where((lap_lower0 == 255) & (blade == 255), 255, 0)
-
-lap_lower_minus1000 = np.where(lap_img < -1000, 255, 0)
-vein_mask_th = np.where((lap_lower_minus1000 == 255) & (blade == 255), 255, 0)
-
-lap_lower_minus2500 = np.where(lap_img < -2500, 255, 0)
-vein_mask_lower2500 = np.where((lap_lower_minus2500 == 255) & (blade == 255), 255, 0)
-skeleton_veins = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
-veins = cv2.add(skeleton_veins,vein_mask_lower2500.astype("uint8") ) 
-
-
-marginless_veins = np.where((vein_mask_th == 255) & (margin == 0), 255, 0)
-
-blade_img = cv2.GaussianBlur(blade_img,(5,5), sigmaX=0)
-th_veins = cv2.adaptiveThreshold(blade_img,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
-        cv2.THRESH_BINARY,7,0)
-th_veins = np.where((blade == 255) & (margin == 0), th_veins, 0)
-
-noise_kernel = np.ones((2,2),np.uint8)
-th_veins_opened = cv2.morphologyEx(th_veins, cv2.MORPH_OPEN, noise_kernel)
-
-
-plot_big(veins[:500:,:500], title="added skeleton and lap lower -2500")
-cv2.imwrite("data/output/added_laplace_skeleton_gray.tif", veins[:300,:300])
-
-
-plt.figure(figsize=(25,25))
-plt.subplot(2,2,1),plt.imshow(img[:300,:300], 'gray')
-plt.title("Compton scatter image", fontsize=30)
-plt.subplot(2,2,2),plt.imshow(vein_mask[:300,:300],'gray')
-plt.title("Laplace <0", fontsize=30)
-plt.subplot(2,2,3),plt.imshow(skeleton_veins[:300,:300], 'gray')
-plt.title("Skeletonized adaptive threshold", fontsize=30)
-plt.subplot(2,2,4),plt.imshow(vein_mask_lower2000[:300,:300], 'gray')
-plt.title("Laplacian <-2500 negative", fontsize=30)
-plt.savefig("data/output/vein_comparison2.png")
-plt.show()
-
-
-# Convert skeletonized to red and laplacian -2500 to green
-img_BGR = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-img_BGR[:,:,1] = 0
-skeleton_veins = cv2.subtract(skeleton_veins, vein_mask_lower2000.astype("uint8"))
-skeleton_veins_BGR = cv2.cvtColor(skeleton_veins, cv2.COLOR_GRAY2BGR)
-# skeleton_veins_BGR[:,:,1] = 0
-
-vein_mask_lower2000_BGR = cv2.cvtColor(vein_mask_lower2000.astype("uint8"), cv2.COLOR_GRAY2BGR)
-# vein_mask_lower2000_BGR[:,:,0] = 0
-
-addition = cv2.add(vein_mask_lower2000_BGR, skeleton_veins_BGR)
-add_ov = overlay(addition,img_BGR, alpha=0.5, beta=0.5)
-sub = cv2.subtract(img_BGR, addition)
-
-
-cv2.imwrite("data/output/added_laplace_skeleton.tif", add_ov[:300,:300])
-# plot_big(addition)
-
-
-# num_labels, labels_im = cv2.connectedComponents(th_veins_opened, connectivity=4)
-
-# def imshow_components(labels):
-#     # Map component labels to hue val
-#     label_hue = np.uint8(179*labels/np.max(labels))
-#     blank_ch = 255*np.ones_like(label_hue)
-#     labeled_img = cv2.merge([label_hue, blank_ch, blank_ch])
-
-#     # cvt to BGR for display
-#     labeled_img = cv2.cvtColor(labeled_img, cv2.COLOR_HSV2BGR)
-
-#     # set bg label to black
-#     labeled_img[label_hue==0] = 0
-
-#     cv2.imshow('labeled.png', labeled_img)
-#     cv2.waitKey()
-
-# imshow_components(labels_im)
-
-# skeleton_veins_terts = cv2.ximgproc.thinning(vein_mask.astype("uint8"))
-# plt.figure(figsize=(10,10))
-# plt.title("Skeletonized Laplacian <0")
-# plt.imshow(skeleton_veins_terts[:300,:300], 'gray')
-# plt.savefig("data/output/vein_comparison_LapSkel.png")
+    break
+    # cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
 
 
 # %% Create individual images per plant
@@ -496,36 +422,127 @@ for fn in plant_fns:
         df[CQ_colnames] = df[mean_colnames].div(df[plant_mean_colname], axis=0)
 df.to_csv("data/Noccaea_CQsA500.csv")
 
-# %% Review results for random insertion of class noise
+# %% Find units for "absolute"
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
-sampled_accessions = list(set(np.random.choice(df['Accession #'], 25)))
-sample = df.loc[df['Accession #'].isin(sampled_accessions),:]
 
-plt.scatter(sample['Accession #'], sample["vein_CQ"], c="blue", label="CQ vein", s=3)
-# plt.scatter(sample['Accession #'], sample["vein_noise10_CQ"], c="orange", 
-#             label="CQ vein 10% rand intensity", s=3)
-plt.scatter(sample['Accession #'], sample["vein_noise20_CQ"], c="red", 
-            label="CQ vein 20% rand intensity", s=3)
-
-plt.ylabel("Concentration Quotient")
-plt.xlabel("accession label")
-plt.legend()
-plt.ylim(0.9,1.2)
-# plt.subplot((212))
-plt.savefig("data/output/plots/CQ normal vs random vein CQ.png")
+df["ICP:muXRF_ratio"] = df["Zn"] / df["metal_Z_plant_abs"]
+plt.scatter(df.index, df["ICP:muXRF_ratio"])
+plt.title("measured Zinc : machine vision zinc ratio")
 plt.show()
 
-
-plt.scatter(sample['Accession #'], sample["vein_meanZC"], c="blue", label="meanZC margin")
-# plt.scatter(sample['Accession #'], sample["vein_noise10_meanZC"], c="orange", label="meanZC vein 10% rand intensity")
-plt.scatter(sample['Accession #'], sample["vein_noise20_meanZC"], c="red", label="meanZC vein 20% rand intensity")
-
-plt.ylabel("mean pixel intensity")
-plt.xlabel("accession label")
-plt.legend()
-plt.savefig("data/output/plots/mean pixel intensity normal versus random vein.png")
+sns.scatterplot(x="metal_Z_plant_n_pix", y = "ICP:muXRF_ratio", data=df)
+plt.ylabel("ICP-AES : muXRF ratio")
+plt.xlabel("plant size [pixels]")
+plt.savefig("data/output/results/ICP-AES_muXRF ratio_plantsize_cor.png", bbox_inches="tight")
 plt.show()
 
+sns.scatterplot(x="metal_Z_plant_meanC", y = "ICP:muXRF_ratio", data=df)
+plt.ylabel("ICP-AES : muXRF ratio")
+plt.xlabel("mean Zinc concentration")
+plt.show()
+
+metal_name = "Z"
+METAL_PATH = "data/plant_" + metal_name + "img/"
+
+for fn in outlier_abs_fn:
+    Zn_image = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
+    plot_big(Zn_image)
+    break
+
+# %% Correlate metals
+
+
+
+# %% Calculate H2
+# pymer is very unstable
+
+os.environ["R_HOME"] = r"C:/Program Files/R/R-3.6.3"
+os.environ["PATH"]   = r"C:/Program Files/R/R-3.6.3/bin/x64" + ";" + os.environ["PATH"]
+# os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
+from pymer4.models import Lmer
+
+
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+
+phenotypes = ["plant_n_pix","plant_meanC", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10"]
+metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+metric = "CQ"
+
+for metal in metals:
+    for phenotype in phenotypes:
+        if (phenotype == "plant_n_pix") or (phenotype == "plant_meanC"):
+            colname = "_".join(metal, phenotype)
+        else:
+            colname = "_".join(metal, phenotype, metric)
+        
+        fitlmer_rand = Lmer(colname + " ~ (1|Accession #)",  data=df, REML=True)
+        
+        # Lmer("DV ~ IV2 + (IV2|Group)", data=df)
+        break
+
+# %% Show raw data that supports H2
+random.seed(69)
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+sns.set_style("ticks")
+
+substructure = "petiole"
+metal = "metal_Z"
+metric = "CQ"
+colname = "_".join((metal, substructure, metric))
+
+df = df.loc[df["batch"].notna(),:]
+random_accessions = random.sample(df["Accession #"].unique().tolist(), 10)
+random_accessions.sort()
+acc_strs = [str(x) for x in random_accessions]
+
+plt_df = df.loc[df["Accession #"].isin(random_accessions),["Accession #", colname]]
+plt_df["substructure"] = [substructure] * len(plt_df)
+
+
+sns.catplot(x="Accession #", y=colname, data=plt_df, hue="substructure", palette=msk_hex_palette, legend=False)
+plt.ylabel("Petiole Zinc CQ [-]")
+plt.savefig("data/output/results/randCQ_petiole_Zn.png", bbox_inches="tight")
+plt.show()
+
+# %% Scatter absolute metal concentration against plant size and mean zinc concentration
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+df["accession_str"] = df['Accession #'].astype(str)
+
+metal = "metal_Z"
+metric = "abs"
+npix = "_".join((metal, "plant", "n_pix"))
+
+sns.set_style("ticks")
+
+subs_abs = [ "_".join((metal, substr, metric)) for substr in obj_class_lst[1:] ]
+plt.figure(figsize=(10,10))
+for i,subs in enumerate(subs_abs):
+    plt.subplot(2,2,i+1)
+    df_plot = df.loc[:,[npix,subs]]
+    df_plot.loc[:,"substructure"] = [subs.split("_")[2]] * len(df_plot)
+    sns.scatterplot(x=npix, y = subs, data=df_plot, hue = "substructure", palette=msk_hex_palette, legend=False)
+    # plt.title(subs)
+    plt.xlabel("plant size [pixels]")
+    plt.ylabel("absolute zinc concentration []")
+plt.savefig("data/output/results/abs_size_cor.png")
+plt.show()
+
+meanC = "_".join((metal, "plant", "meanC"))
+subs_abs = [ "_".join((metal, substr, metric)) for substr in obj_class_lst[1:] ]
+plt.figure(figsize=(10,10))
+for i,subs in enumerate(subs_abs):
+    plt.subplot(2,2,i+1)
+    df_plot = df.loc[:,[meanC,subs]]
+    df_plot.loc[:,"substructure"] = [subs.split("_")[2]] * len(df_plot)
+    sns.scatterplot(x=meanC, y = subs, data=df_plot, hue = "substructure", palette=msk_hex_palette, legend=False)
+    # plt.title(subs)
+    plt.xlabel("mean Zinc concentration [-]")
+    plt.ylabel("absolute zinc concentration []")
+plt.savefig("data/output/results/meanC_size_cor.png")
+plt.show()
+
+              
 # %% Scatter CQs against n_pixel and mean plant CQ
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 df["accession_str"] = df['Accession #'].astype(str)
@@ -554,7 +571,6 @@ plt.savefig("data/output/plots/CQ versus mean Zinc concentration.png")
 plt.show()
 
 # Adapt CQ by subtracting 1 and taking absolute value
-
 normean_abs_CQs = [name + "normean_abs_CQ" for name in obj_class_lst[1:]]
 CQs = [subs + "_CQ" for subs in obj_class_lst[1:]]
 df[normean_abs_CQs] = (df[CQs] - 1).abs()
@@ -588,7 +604,7 @@ g = sns.pairplot(df_noNAN[pairplt_vars]) # , hue='accession_str', palette='brigh
 g.map(corrfunc)
 # g._legend.remove()
 
-# %% Scatter CQ against relative proportion of 
+# %% Scatter CQ against relative area proportion of substructure
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 substructures = obj_class_lst[1:]
 metal = "metal_Z"
@@ -598,13 +614,13 @@ for i, substrct in enumerate(substructures):
     plant_area = "_".join((metal, "plant", "n_pix"))
     rel_strct_area = df[sbstrct_area] / df[plant_area] * 100
     substrct_CQ = "_".join((metal, substrct, "CQ"))
-
     
     plt.subplot(2,2,i+1)
     plt.scatter(rel_strct_area, df[substrct_CQ], s=2)
     plt.xlabel("relative substructure area [%]")
     plt.ylabel("CQ")
     plt.title(substrct)
+plt.savefig("data/output/results/CQ versus rel subs area.png", bbox_inches="tight")
 plt.show()
 
 
@@ -650,14 +666,19 @@ leaftypes_rep2 = []
 for leaftype in leaf_types:
     leaftypes_rep2.extend([leaftype, leaftype])
 
-cols = color_palette("hls", 8)
-fwd_coldct = {leaftype:[] for leaftype in leaf_types}
-bwd_coldct = {}
-
-for i, col, lt in zip(range(len(cols)), cols, leaftypes_rep2):
+cols_float = color_palette("hls", 8)
+cols_int = []
+for col in cols_float:
     col = tuple([int(x * 255) for x in col])
-    fwd_coldct[lt].append(col)
-    bwd_coldct[col] = (lt, i)
+    cols_int.append(col)
+
+fwd_coldct = {'first':[cols_int[0], cols_int[1]], 'grown_1':[cols_int[2], cols_int[3]],
+              'grown_2':[cols_int[4],cols_int[5]], 'developping':[cols_int[6],cols_int[7]]}
+bwd_coldct = {cols_int[0]:('first', 1), cols_int[1]:('first', 1), cols_int[2]:('grown_1', 2),
+              cols_int[3]:('grown_1', 2), cols_int[4]:('grown_2', 3), cols_int[5]:('grown_2', 3),
+              cols_int[6]:('developping', 4),cols_int[7]:('developping', 4)
+    }
+
 
 with open("data/output/ML_imgs/col_classid_dct.pck", "wb") as f:
     pickle.dump(bwd_coldct, f)
@@ -670,11 +691,11 @@ for fn in leaf_polydct.keys():
     img_rgb = color.gray2rgb(plant_img)
 
     mrcnn_msk = np.zeros((plant_img.shape[0], plant_img.shape[1], 3))
+    mrcnn_msk_cop = mrcnn_msk.copy()
     
     for leaftype in leaf_types: # Randomizing because some leaf masks overlap, leaf class coming out on top is random
         for i,polygon in enumerate(leaf_polygon_dct[fn][leaftype]):
             cv2.drawContours(mrcnn_msk, [polygon], 0, fwd_coldct[leaftype][i], -1)
-    
     # plt.subplot(2,1,1)
     # plt.imshow(mrcnn_msk.astype("int32"))
     # plt.subplot(2,1,2)
@@ -685,17 +706,37 @@ for fn in leaf_polydct.keys():
     
 
 mask = []
-img = io.imread(ML_msk_path + fn.split(".")[0] + "_label.png")
-img_colors = np.unique(img.reshape(-1, img.shape[2]), axis=0, return_inverse=True)
-background = np.array([0,0,0]) # Background is black
-class_id_lst = []
-for i, color in enumerate(img_colors[0]):
-    if (color != background).any():
-        bin_mask = np.where(img_colors[1] == i, True, False).astype(int)
-        bin_mask = np.reshape(bin_mask, img.shape[:2]) # Shape back to 2D
-        class_name = bwd_coldct[tuple(color)][0]
-        class_id = bwd_coldct[tuple(color)][1]
-        plt.imshow(bin_mask)
-        plt.title(class_name + " " + str(class_id))
-        plt.show()
-        mask.append(bin_mask)
+for fn in leaf_polydct.keys():
+    img = io.imread(ML_msk_path + fn.split(".")[0] + "_label.png")
+    img_colors = np.unique(img.reshape(-1, img.shape[2]), axis=0, return_inverse=True)
+    background = np.array([0,0,0]) # Background is black
+    class_id_lst = []
+    for i, color in enumerate(img_colors[0]):
+        if (color != background).any():
+            bin_mask = np.where(img_colors[1] == i, True, False).astype(int)
+            bin_mask = np.reshape(bin_mask, img.shape[:2]) # Shape back to 2D
+            class_name = bwd_coldct[tuple(color)][0]
+            class_id = bwd_coldct[tuple(color)][1]
+            plt.imshow(bin_mask)
+            plt.title(class_name + " " + str(class_id))
+            plt.show()
+            mask.append(bin_mask)
+    import pdb; pdb.set_trace()
+        
+
+# %% copy test val to right folders
+from sklearn.model_selection import train_test_split
+
+ML_msk_path =  "data/output/ML_imgs/mask/"
+ML_img_path = "data/output/ML_imgs/image/"
+
+train, test = train_test_split(os.listdir(ML_img_path))
+
+for fn in train:
+    fn_bare = fn[:-7]
+    fn_mask = fn_bare + "label.png"
+    
+    
+    
+    
+    
