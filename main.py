@@ -16,7 +16,7 @@ import os
 import random
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_style("ticks")
+# sns.set_style("ticks")
 sns.set(font_scale=1.3)
 
 np.random.seed(69)
@@ -38,7 +38,7 @@ PLANT_ZIMG_PATH = "data/plant_Zimg/"
 PLANT_ZIMG_NOISE_PATH = "data/plant_Zimg_noise/"
 PLANT_KIMG_PATH = "data/plant_Kimg/"
 
-DF_SAVE_PATH = "data/Noccaea_processed.csv"
+DF_SAVE_PATH = "data/Noccaea_CQsA500.csv"
 POLY_DCT_PATH = "data/polygon_dict.pck"
 LEAFPOLY_DCT_PATH = "data/leaf_polygon_dct.pck"
 
@@ -403,6 +403,7 @@ for fn in plant_fns:
         df[CQ_colnames] = df[mean_colnames].div(df[plant_mean_colname], axis=0)
 df.to_csv("data/Noccaea_CQsA500.csv")
 
+
 # %% Find units for "absolute"
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 
@@ -720,4 +721,45 @@ for fn in train:
     
     
     
+# %% Find smallest, medium and largest plant
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+sorted_df = df.loc[df["batch"].notna(),:].sort_values(by="metal_Z_plant_n_pix")
+biggest_plant = sorted_df.fn.iloc[-1]
+smallest_plant = sorted_df.fn.iloc[0]
+medium_plant = sorted_df.fn.iloc[(len(df) - 1)//2]
+
+# for fn in [biggest_plant, medium_plant, smallest_plant]:
+#     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+#     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+    
+#     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+#     assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+
+#     cv2.imwrite("data/output/curated_masks/img_" + fn, img)
+#     cv2.imwrite("data/output/curated_masks/original_multimsk_" + fn, multimsk)
+
+img = cv2.imread(PLANT_IMG_PATH + biggest_plant, cv2.IMREAD_GRAYSCALE)
+assert isinstance(img, np.ndarray), "{} doesn't exsit".format(biggest_plant)
+
+multimsk = cv2.imread(PLANT_MULTIMSK_PATH + biggest_plant) # Load as RGB
+assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + biggest_plant)
+
+bigsquare_multimsk = cv2.imread("data/output/curated_masks/bigpatch_multimsk_Batch2 _9_c.tif", )
+assert isinstance(bigsquare_multimsk, np.ndarray), "nope"
+
+for msk in [multimsk, bigsquare_multimsk]:
+    print(np.unique(msk.reshape(-1, msk.shape[2]), axis=0, return_inverse=True))
+    layer_msk = stats.get_layer(msk, msk_col_dct, "petiole")
+    plot_big(layer_msk)
+    subs_metal_image = stats.get_sub_ele_img(img, layer_msk)
+    plot_big(msk)
+    print(stats.get_sub_ele_stats(subs_metal_image))
+    
+    
+
+
+
+
+
+
     
