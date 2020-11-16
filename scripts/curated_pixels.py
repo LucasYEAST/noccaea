@@ -10,7 +10,8 @@ import numpy as np
 from scripts import stats, viz
 import random
 import pandas as pd
-
+from sklearn import metrics
+import seaborn as sns
 
 random.seed(69)
 
@@ -30,8 +31,7 @@ class_dct_rev = {v:k for k,v in class_dct.items()}
 {'petiole': 1, 'margin': 2, 'vein': 3, 'tissue': 4}
 
 
-
-
+# %% Select random pixels
 for fn in plant_fns:
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
     assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
@@ -51,9 +51,8 @@ randpix_df = pd.DataFrame(df_lst, columns = ("fn", "x", "y", "pred_class"))
 randpix_df.to_csv("data/rand_pred_pixel.csv")
 
 # %% color random pixels
-randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0)
-if "obs_class" not in randpix_df.columns:
-    randpix_df["obs_class"] = np.nan
+# randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
+# randpix_df["obs_class"] = randpix_df["obs_class"].astype(float)
 
 randpix_df = randpix_df.sample(frac=1) # Shuffle dataframe
 
@@ -66,7 +65,8 @@ for fn in fn_lst:
     # get random selected pixel coords for this image
     xy = randpix_df.loc[randpix_df.fn == fn,:]
     for _, row in xy.iterrows():
-        if not np.isnan(randpix_df.loc[row.name, "obs_class"]):
+        v = randpix_df.loc[row.name, "obs_class"] 
+        if (v in range(5)) or (v in ['0','1','2','3','4']):
             continue
 
         highlight_img = img.copy()
@@ -76,18 +76,27 @@ for fn in fn_lst:
         sb = max(0, x - 50)
         eb = max(0, y - 50)
         wb = min(y + 50, highlight_img.shape[1])
+        viz.plot_big(img[sb:nb, eb:wb])
         viz.plot_big(highlight_img[sb:nb, eb:wb])
+        print(row.obs_class)
         randpix_df.loc[row.name, "obs_class"] = input("class: ")
+        print(len(randpix_df.loc[randpix_df["obs_class"].notna(),:]))
         randpix_df.to_csv("data/rand_pred_pixel.csv")
-
-        # viz.plot_big2(img[sb:nb, eb:wb], )
-
         
-    # display image crop & image crop with highlighted pixel
-    
-    # input class
-    
-    # save input in dataframe
-    
-# multimsk_stack = np.stack(multimsks)
+
+# %% Create confusion matrix
+
+
+randpix_df.obs_class = randpix_df.obs_class.astype(float)
+matrix_df = randpix_df.loc[randpix_df["obs_class"].isin(range(5)),:]
+print("count: ", len(matrix_df)/4000)
+
+conf_matrix = pd.DataFrame(metrics.confusion_matrix(matrix_df["obs_class"], matrix_df["pred_class"], [1,2,3,4]))
+conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+
+labels =  ["petiole", "margin", "vein", "tissue" ]
+sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True)
+# plt.show()
+
+
 

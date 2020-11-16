@@ -5,10 +5,15 @@ Created on Wed Sep 30 16:43:01 2020
 @author: lucas
 """
 import numpy as np
+import itertools
 import cv2
 import pickle
 import pandas as pd
 import os
+
+from scripts import viz
+
+
 
 # TODO maybe remove automatic thresholding functions, they seem to be not robust
 # TODO rewrite code on generating random substructues and other random stuff (moved it from main to here)
@@ -88,78 +93,156 @@ def poly_crop(img, polygon, col = 255, bg = 0):
 
 # TODO this should be two or three separate functions
 # TODO rewrite comments
-def make_individual_plant_images(POLYGON_DCT_PATH, batchname_lst, RAW_TIFF_PATH, 
-                                 BATCH_MSK_PATH, BATCH_MULTIMSK_PATH, RAW_TXT_PATH, 
+def make_individual_plant_images(POLYGON_DCT_PATH, batch, RAW_TIFF_PATH, 
+                                 BATCH_MSK_PATH, multimsk, RAW_TXT_PATH, 
                                  PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
                                  metal, msk_col_dct, create_masks = False):
     # Load the polygon coordinates
     with open(POLYGON_DCT_PATH, "rb") as f:
         polygon_dct = pickle.load(f)
+        
+    img_path = RAW_TIFF_PATH + batch + "- Image.tif"
+    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
     
-    for batch in batchname_lst:    
-        img_path = RAW_TIFF_PATH + batch + "- Image.tif"
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
-        
-        msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
-        msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
-        
-        multimsk_path = BATCH_MULTIMSK_PATH + batch + "multimsk.tif"
+    msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
+    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
+    
+    if type(multimsk) == str:
+        multimsk_path = multimsk + batch + "multimsk.tif"
         multimsk = cv2.imread(multimsk_path) # Load as RGB
-        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
-            
-        # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
-        # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
-        #TODO harmonize folder names, change Zimg to Znimg
-        if metal == "Z":
-            metal_raw_path = "Zn"
-        else:
-            metal_raw_path = metal
-            
-        metalimg_path = RAW_TXT_PATH + batch + "- " + metal_raw_path + ".txt"    
-        metalimg = np.loadtxt(metalimg_path, delimiter=",", skiprows=1)
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
         
-        # Dilate mask to include a strip of background around the plant Zimage
-        kernel = np.ones((5,5),np.uint8)
-        dil_msk = cv2.dilate(msk, kernel, iterations = 1)
+    # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
+    # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
+    #TODO harmonize folder names, change Zimg to Znimg
+    if metal == "Z":
+        metal_raw_path = "Zn"
+    else:
+        metal_raw_path = metal
         
-        # Loop over polygon dictionaries
-        for acc_rep, polygon in polygon_dct[batch].items():
-            # Create mask/image name
-            accession, replicate = acc_rep.split("_")
-            fn = "_".join([batch, accession, replicate])
+    metalimg_path = RAW_TXT_PATH + batch + "- " + metal_raw_path + ".txt"    
+    metalimg = np.loadtxt(metalimg_path, delimiter=",", skiprows=1)
+    
+    # Dilate mask to include a strip of background around the plant Zimage
+    kernel = np.ones((5,5),np.uint8)
+    dil_msk = cv2.dilate(msk, kernel, iterations = 1)
+    
+    # Loop over polygon dictionaries
+    for acc_rep, polygon in polygon_dct[batch].items():
+        # Create mask/image name
+        accession, replicate = acc_rep.split("_")
+        fn = "_".join([batch, accession, replicate])
+        
+        # Crop img, Zimg, msk and multimsk using polygon
+        blacked_img = poly_crop(img, polygon)
+        blacked_metalimg = poly_crop(metalimg, polygon)
+        blacked_msk = poly_crop(msk, polygon)
+        bged_multimsk = poly_crop(multimsk, polygon, 
+                                             col = (255,255,255), bg = msk_col_dct['background'])
             
-            # Crop img, Zimg, msk and multimsk using polygon
-            blacked_img = poly_crop(img, polygon)
-            blacked_metalimg = poly_crop(metalimg, polygon)
-            blacked_msk = poly_crop(msk, polygon)
-            bged_multimsk = poly_crop(multimsk, polygon, 
-                                                 col = (255,255,255), bg = msk_col_dct['background'])
-                
-            # Crop image to bounding box around polygon
-            x,y,w,h = cv2.boundingRect(blacked_img)
-            plant_dil_msk = dil_msk[y:y+h,x:x+w]
+        # Crop image to bounding box around polygon
+        x,y,w,h = cv2.boundingRect(blacked_img)
+        plant_dil_msk = dil_msk[y:y+h,x:x+w]
+        
+        if create_masks:
+            plant_msk = blacked_msk[y:y+h,x:x+w] * 255
             
-            if create_masks:
-                plant_msk = blacked_msk[y:y+h,x:x+w] * 255
-                
-                dirty_plant_img = blacked_img[y:y+h,x:x+w]
-                dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
-                
-                plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
-                plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
-                plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
+            dirty_plant_img = blacked_img[y:y+h,x:x+w]
+            dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
             
-                cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
-                cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
-                cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
-            
-            dirty_plant_metalimg = blacked_metalimg[y:y+h,x:x+w]
-            plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
-            import pdb; pdb.set_trace()
-            # np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
+            plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
+            plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
+            plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
+        if create_masks == "multi":
+            plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
+            plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
+            # cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
+            # cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
+            # cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
+        
+        dirty_plant_metalimg = blacked_metalimg[y:y+h,x:x+w]
+        plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
+        # np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
+        import pdb; pdb.set_trace()
+def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
+                     blade_ksize, lap_ksize, thin_th, fat_th,
+                     msk_col_dct, BATCH_MULTIMSK_PATH):
+    
+    img_fn = RAW_TIFF_PATH + batch + "- Image.tif"
+    img = cv2.imread(img_fn, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_fn)
 
+    msk_fn = BATCH_MSK_PATH + batch + "batchmsk.tif"
+    msk = cv2.imread(msk_fn, cv2.IMREAD_GRAYSCALE)
+    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_fn)
+    
+    msk_dct = {}
+    
+    # Get background
+    background = np.where(msk == 0, 255, 0)
+    msk_dct["background"] = background
+    
+    # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
+    blade_kernel = np.ones((blade_ksize,blade_ksize),np.uint8)
+    blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
+    blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
+    
+    
+    # Now get the petiole masks by subtracting the blade from the whole plant mask 
+    # followed by another smaller kernel opening
+    petiole = ((msk != blade) * 255).astype("uint8")
+    large_contours = contouring(petiole, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
+    petiole = create_mask(petiole, large_contours)
+    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
+    msk_dct["petiole"] = petiole
+    
+    # Assign blade + all unassigned pixels to blade
+    blade = ((background + petiole) == 0) * 255
+    blade = blade.astype("uint8")
+    
+    ## Get leaf margin
+    margin_kernel = np.ones((5,5),np.uint8)
+    gradient = cv2.morphologyEx(blade, cv2.MORPH_GRADIENT, margin_kernel)
+    margin = np.where((blade == 255) & (gradient == 255), 255, 0).astype("uint8")
+    msk_dct["margin"] = margin
+
+    ## Get vein mask
+    blade_img = np.where(blade, img, 0)
+    lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=lap_ksize)
+    
+    thin_veins = (lap_img < thin_th) * 255 #np.where(lap_img < -2500, 255, 0)
+    fat_veins = (lap_img < fat_th) * 255
+    skeleton_veins = cv2.ximgproc.thinning(fat_veins.astype("uint8"))
+    
+    veins = cv2.add(skeleton_veins,thin_veins.astype("uint8") ) 
+    marginless_veins = np.where((veins == 255) & (blade == 255) & (margin == 0), 255, 0)
+    msk_dct['vein'] = marginless_veins
+    
+    ## get leaf tissue 
+    # TODO remove margin == 0 shouldn't matter
+    tissue = np.where((marginless_veins == 0) & (blade == 255) & (margin == 0), 255, 0)
+    msk_dct["tissue"] = tissue
+    
+    ## Check for overlap between masks
+    for tup in itertools.combinations(msk_dct, 2):
+        msk0 = msk_dct[tup[0]]
+        msk1 = msk_dct[tup[1]]
+        overlap = (msk0 == 255) & (msk1 == 255)
+        if overlap.any() == True:
+            print("'{} and {}' overlap".format(tup[0], tup[1]))
+            # plot_big(np.where(overlap, (255,255,255), (0,0,0)))
+            viz.plot_big(overlap * 255)
+            assert overlap.any() == False, "'{} and {}' overlap".format(tup[0], tup[1])
+
+    ## Create multi-color mask image (.jpg)
+    multi_msk = np.zeros((msk.shape[0], msk.shape[1], 3))
+    for name, partial_msk in msk_dct.items():
+        col_BGR = msk_col_dct[name]
+        partial_msk = partial_msk[:,:,None] # Add dimension for color
+        multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
+    return multi_msk
 
 # %% Create df with random CQs to test
 phenotypes = ("plant_npixel","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")

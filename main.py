@@ -194,6 +194,8 @@ for fn in rand_plant_fns:
         pickle.dump(leaf_polygon_dct, f)
         
 # %% Create leaf multimask
+# TODO write as function, move to processing.py
+
 with open(LEAFPOLY_DCT_PATH, "rb") as f:
     leaf_polygon_dct = pickle.load(f)
 
@@ -284,7 +286,7 @@ for batch in batchname_lst:
     msk_dct["background"] = background
     
     # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
-    blade_kernel = np.ones((15,15),np.uint8)
+    blade_kernel = np.ones((blade_ksize,blade_ksize),np.uint8)
     blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
     blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
     
@@ -309,10 +311,10 @@ for batch in batchname_lst:
 
     ## Get vein mask
     blade_img = np.where(blade, img, 0)
-    lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=7)
+    lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=lap_ksize)
     
-    thin_veins = (lap_img < -2500) * 255 #np.where(lap_img < -2500, 255, 0)
-    fat_veins = (lap_img < 0) * 255
+    thin_veins = (lap_img < thin_th) * 255 #np.where(lap_img < -2500, 255, 0)
+    fat_veins = (lap_img < fat_th) * 255
     skeleton_veins = cv2.ximgproc.thinning(fat_veins.astype("uint8"))
     
     veins = cv2.add(skeleton_veins,thin_veins.astype("uint8") ) 
@@ -332,7 +334,7 @@ for batch in batchname_lst:
         if overlap.any() == True:
             print("'{} and {}' overlap".format(tup[0], tup[1]))
             # plot_big(np.where(overlap, (255,255,255), (0,0,0)))
-            plot_big(overlap * 255)
+            viz.plot_big(overlap * 255)
             assert overlap.any() == False, "'{} and {}' overlap".format(tup[0], tup[1])
 
     ## Create multi-color mask image (.jpg)
@@ -349,7 +351,7 @@ for batch in batchname_lst:
 metals = ["Z"]
 
 for metal in metals:
-    processing.make_individual_plant_images(POLY_DCT_PATH, batchname_lst, RAW_TIFF_PATH, 
+    processing.make_individual_plant_images(POLY_DCT_PATH, batchname_lst[0], RAW_TIFF_PATH, 
                                  BATCH_MSK_PATH, BATCH_MULTIMSK_PATH, RAW_TXT_PATH, 
                                  PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
                                  metal, msk_col_dct, create_masks = True)
@@ -406,15 +408,18 @@ df.to_csv("data/Noccaea_CQsA500.csv")
 
 # %% Find units for "absolute"
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
+sns.set_style("ticks")
 
 df["ICP:muXRF_ratio"] = df["Zn"] / df["metal_Z_plant_abs"]
+outlier_abs_fn = df.loc[df["ICP:muXRF_ratio"] > 0.00075,"fn"].tolist()
+
 plt.scatter(df.index, df["ICP:muXRF_ratio"])
 plt.title("measured Zinc : machine vision zinc ratio")
 plt.show()
 
 sns.scatterplot(x="metal_Z_plant_n_pix", y = "ICP:muXRF_ratio", data=df)
-plt.ylabel("ICP-AES : muXRF ratio")
-plt.xlabel("plant size [pixels]")
+plt.ylabel("ICP-AES : \u03BCXRF ratio")
+plt.xlabel("Plant Size [pixels]")
 plt.savefig("data/output/results/ICP-AES_muXRF ratio_plantsize_cor.png", bbox_inches="tight")
 plt.show()
 
@@ -423,13 +428,27 @@ plt.ylabel("ICP-AES : muXRF ratio")
 plt.xlabel("mean Zinc concentration")
 plt.show()
 
+sns.scatterplot(x="Zn", y = "metal_Z_plant_abs", data=df)
+plt.ylabel("\u03BCXRF absolute zinc [-]")
+plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
+plt.show()
+
 metal_name = "Z"
 METAL_PATH = "data/plant_" + metal_name + "img/"
 
 for fn in outlier_abs_fn:
     Zn_image = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
+    img = cv2.imread(PLANT_IMG_PATH + fn)
+    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
+    msk = cv2.imread(PLANT_MSK_PATH + fn)
+    print(df.loc[df.fn == fn, "ICP:muXRF_ratio"])
     plot_big(Zn_image)
-    break
+    # plot_big2(img, msk)
+    plot_big2(img, multimsk)
+    if input("save? ") == "yes":
+        cv2.imwrite("data/output/article_images/wrongclass_smallimg_" + fn + ".png", Zn_image)
+      
+
 
 # %% Correlate metals
 
@@ -755,11 +774,102 @@ for msk in [multimsk, bigsquare_multimsk]:
     plot_big(msk)
     print(stats.get_sub_ele_stats(subs_metal_image))
     
+# %% Sensitivity analysis
+randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
+para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
+xy_tuplst = list(zip(randpix_df.x.tolist(), randpix_df.y.tolist()))
+randpix_df["xy"] = xy_tuplst
+
+with open(POLY_DCT_PATH, "rb") as f:
+    polygon_dct = pickle.load(f)
+
+class_dct = {1:"petiole", 2:"margin", 3:"vein", 4:"tissue"}
+class_dct_rev = {v:k for k,v in class_dct.items()}
+
+for i in range(len(para_df)):
+    blade_ksize, lap_ksize, thin_th, fat_th = para_df.loc[i, ['blade_ksize', 'lap_ksize', 'thin_th', 'fat_th']]
+    randpix_df["pred_class_" +str(i)] =np.nan
+
+    for batch in batchname_lst:
+        multi_msk = processing.create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
+                             blade_ksize, lap_ksize, thin_th, fat_th,
+                             msk_col_dct, BATCH_MULTIMSK_PATH)
+        
+        # Divide batch multimask into individual plants
+        for acc_rep, polygon in polygon_dct[batch].items():
+            accession, replicate = acc_rep.split("_")
+            fn = "_".join([batch, accession, replicate])
+            fn += ".tif"
+            # Remove other plants
+            bged_multimsk = processing.poly_crop(multi_msk, polygon, 
+                                             col = (255,255,255), bg = msk_col_dct['background'])
+            
+            # Crop image to bounding box around polygon
+            x,y,w,h = cv2.boundingRect(polygon)
+            plant_multimsk = bged_multimsk[y:y+h,x:x+w]
+            
+            # Get pixel class from adusted multimask for the 4000 surveyed pixels
+            for substrct in obj_class_lst[1:]:
+                layer_msk = stats.get_layer(plant_multimsk,msk_col_dct,substrct)
+                x,y = np.where(layer_msk > 0 )
+                xy_lst = list(zip(x,y))
+                randpix_df.loc[(randpix_df.fn == fn) & (randpix_df.xy.isin(xy_lst)),"pred_class_"+str(i)] = class_dct_rev[substrct]             
     
+# %%
+randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
 
+from sklearn import metrics
+labels =  ["petiole", "margin", "vein", "tissue" ]
+Y_obs = randpix_df["obs_class"]
+Y_pred =  randpix_df["pred_class"]
+conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
+print(conf_matrix)
+sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
+conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+plt.figure(figsize=(4,5))
+p = sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
+p.set_xticklabels(labels, rotation=90)
+p.set_yticklabels(labels, rotation=0)
+plt.legend([],[], frameon=False)
 
+# plt.savefig("data/output/article_images/confusion_matrix.png", dpi=300,
+            # bbox_inches="tight")
 
+plt.show()
+F_scores = metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average=None)
 
+# F_scores = []
+# for i in range(len(para_df)):
+#     Y_pred =  randpix_df["pred_class_" + str(i)]
+#     conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
+#     conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+#     sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True)
+#     F_scores.append(metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average='weighted'))
+#     plt.show()
 
+# %% Inspect erronous pixels
+answer = ""
+while answer != "stop":
+    answer = input("class, stop: ")
+    row = randpix_df.loc[(randpix_df["obs_class"] == int(answer)) & 
+                         (randpix_df["obs_class"] != randpix_df["pred_class"]),:].sample()
+    fn = row.fn.values[0]
+    img = cv2.imread(PLANT_IMG_PATH + fn)
+    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
+
+    print("true", row.obs_class, "pred", row.pred_class)
+    x,y = row.x.values[0], row.y.values[0]
+    img[x, y] = (0,0,255)
+    cv2.circle(img, (y,x), 10, (0,0,255))
+       
+    nb = min(x + 50, img.shape[0])
+    sb = max(0, x - 50)
+    eb = max(0, y - 50)
+    wb = min(y + 50, img.shape[1])
+    plot_big2(img[sb:nb, eb:wb], multimsk[sb:nb, eb:wb])
+    if input("save? ") == "yes":
+        cv2.imwrite("data/output/article_images/wrongclass_img_" + answer + "_" + fn + ".png", img[sb:nb, eb:wb])
+        cv2.imwrite("data/output/article_images/wrongclass_multimsk_" + answer + "_" + fn + ".png", multimsk[sb:nb, eb:wb])
+        
 
     
