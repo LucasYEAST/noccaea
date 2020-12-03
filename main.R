@@ -12,12 +12,13 @@ input <- input[input$batch != "",] # Removes unprocessed (batch 3 + root rows)
 
 input$rep <- as.factor(input$Biological.replicate)
 input$genotype <- as.factor(input$Accession..)
-phenotypes <- c("plant_n_pix", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10")
+phenotypes <- c("plant_n_pix", "plant_meanC", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10")
 
 metals <- c("metal_Z", "metal_K", "metal_Ni", "metal_Ca")
-metric <- "A500"
-
+metric <- "CQ" 
+results <- c()
 for (metal in metals){
+  result_labels <- paste(phenotypes, metal, sep="_")
   for (current_phenotype in phenotypes){
     if ((current_phenotype == "plant_n_pix") | (current_phenotype == "plant_meanC")){
       colname <- paste(metal, current_phenotype, sep = "_")
@@ -37,15 +38,21 @@ for (metal in metals){
     } else {
       result[nrow(result) + 1,] = list(out$vcov[1], out$vcov[2])
     }
+    
   }
+  
    
   result$total_var <- result$genotype + result$residual
   result$H2 <- result$genotype / result$total_var
   result$H2_percent <- result$H2 * 100
-  row.names(result) <- phenotypes
+  row.names(result) <- result_labels
+  if (metal == metals[1]){
+    combined_results <- result
+  }
+  else{
+    combined_results <- rbind(combined_results, result)
+  }
   
-  print(
-    
   ggplot(data=result, aes(x=row.names(result), y=H2_percent, fill=row.names(result))) +
     geom_bar(stat="identity") +
     scale_x_discrete(limits = phenotypes) +
@@ -55,7 +62,7 @@ for (metal in metals){
     ylab("H2 (%)") +
     theme(axis.text.x = element_text(angle = 90)) +
     theme(legend.position = "none") +
-    ggtitle(metal)) 
+    ggtitle(metal) 
   ggsave(paste0("data/output/plots/", metal, "_", metric, "_H2.png")) # Zimg_noise/H2.png
   
   # sorted_result <- with(result,  result[order(row.names(result)) , ])

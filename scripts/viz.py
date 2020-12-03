@@ -53,6 +53,9 @@ def plot_big(img, title=""):
     
 def plot_big2(img0, img1, title0="", title1=""):
     """plot 2 10x10 images next to each other"""
+    if (img0.ndim == 3) or (img1.ndim == 3):
+        img0 = cv2.cvtColor(img0.astype("uint8"), cv2.COLOR_BGR2RGB)
+        img1 = cv2.cvtColor(img1.astype("uint8"), cv2.COLOR_BGR2RGB)
     plt.figure(figsize=(20,20))
     plt.subplot(2,2,1)
     plt.imshow(img0, cmap='gray')

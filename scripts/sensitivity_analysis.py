@@ -16,16 +16,17 @@ t= -2500
 f= 0
 
 para_df = pd.DataFrame(columns=para_dct.keys())
-
+para_map = {}
 i = 0
 for k,v in para_dct.items():
     for para in v:
         para_df.loc[i,:] = [b,l,t,f]
         para_df.loc[i, k] = para
+        para_map[i] = k + "_" + str(para)
         i += 1
         
-para_df.to_csv("data/sensitivity_paras.csv")
-        
+# para_df.to_csv("data/sensitivity_paras.csv")
+# print(para_map)
     
 # %%
 
