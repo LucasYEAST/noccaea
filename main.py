@@ -4,7 +4,7 @@ Created on Wed Sep 30 16:40:58 2020
 
 @author: lucas
 """
-from scripts import utils, processing, draw, stats
+from scripts import utils, processing, draw, stats, viz
 from scripts.viz import *
 import itertools
 
@@ -19,6 +19,7 @@ import seaborn as sns
 from scipy.stats import pearsonr
 # sns.set_style("ticks")
 sns.set(font_scale=1.3)
+sns.set_style("ticks")
 
 np.random.seed(69)
 
@@ -53,15 +54,14 @@ obj_class_lst = ["background", "petiole", "margin", "vein", "tissue" ]
 class_dct = {1:"petiole", 2:"margin", 3:"vein", 4:"tissue"}
 class_dct_rev = {v:k for k,v in class_dct.items()}
 
-msk_col_dct = get_colors(obj_class_lst, "Set2")
+msk_col_dct = viz.get_colors(obj_class_lst, "Set2")
 msk_hex_palette = sns.color_palette(['#%02x%02x%02x' % (msk_col_dct[key][2], msk_col_dct[key][1], msk_col_dct[key][0]) \
                                      for key in obj_class_lst]) # BGR -> RGB -> HEX -> sns palette
 msk_hex_palette = dict(zip(obj_class_lst, msk_hex_palette))
 
 
-
 leaf_types = ["first", "grown_1", "grown_2", "developping"]
-leafmsk_col_dct = get_colors(leaf_types, "hls")
+leafmsk_col_dct = viz.get_colors(leaf_types, "hls")
 
 
 hex_msk_col_dct = {k:'#{:02x}{:02x}{:02x}'.format(v[2],v[1],v[0]) for k,v in msk_col_dct.items()}
@@ -106,7 +106,7 @@ for batch in batchname_lst:
                 
         # Annotate
         img_poly = cv2.polylines(np.copy(img), polygon, True, (255,255,255), 1)
-        plot_big(img_poly)
+        viz.plot_big(img_poly)
         accession, replicate = draw.annotate(batch)
         fn = "_".join([batch, accession, replicate])
         fn += ".tif"
@@ -159,7 +159,7 @@ for fn in rand_plant_fns:
     accepted_contours = []
     for cnt in contours:
         cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
-        plot_big(cnt_img)
+        viz.plot_big(cnt_img)
         answer = input("Accept contour? (y/ENTER/n/skip): ")
         if answer == "skip":
             continue
@@ -176,7 +176,7 @@ for fn in rand_plant_fns:
                 manual_blade_msk = (polygon_msk > 0) & (blade_msk > 0 )
                 bl_msk_cnt = processing.contouring(manual_blade_msk.astype("uint8"))[0]
                 new_cnt_img = cv2.drawContours(img.copy(), [bl_msk_cnt], 0, (0,255,0), 1)
-                plot_big(new_cnt_img)
+                viz.plot_big(new_cnt_img)
                 if not input("accept new polygon? (y/n)") == "n":
                     answer = input("leaf type? ")
                     assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
@@ -272,84 +272,6 @@ for batch in batchname_lst:
     # plot_big2(mask, mask_closed, batch)
     cv2.imwrite(BATCH_MSK_PATH + batch + "batchmsk.tif", mask_closed)
     
-# %% 2. Create batch multimask
-for batch in batchname_lst:
-    img_fn = RAW_TIFF_PATH + batch + "- Image.tif"
-    img = cv2.imread(img_fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_fn)
-
-    msk_fn = BATCH_MSK_PATH + batch + "batchmsk.tif"
-    msk = cv2.imread(msk_fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_fn)
-    
-    msk_dct = {}
-    
-    # Get background
-    background = np.where(msk == 0, 255, 0)
-    msk_dct["background"] = background
-    
-    # Get blade by opening on the whole plant mask with a large kernel to remove the petiole and artefacts
-    blade_kernel = np.ones((blade_ksize,blade_ksize),np.uint8)
-    blade = cv2.morphologyEx(msk, cv2.MORPH_OPEN, blade_kernel)
-    blade = np.where((blade == 255) & (msk == 255), 255, 0) # Opening adds some pixels outside mask I beleive
-    
-    
-    # Now get the petiole masks by subtracting the blade from the whole plant mask 
-    # followed by another smaller kernel opening
-    petiole = ((msk != blade) * 255).astype("uint8")
-    large_contours = processing.contouring(petiole, area_th = 0.00001) # Removes small misclassified petiole areas at blade edge
-    petiole = processing.create_mask(petiole, large_contours)
-    petiole = (((petiole == 255) & (background == 0)) * 255).astype("uint8") # Removes artefacts created during contouring
-    msk_dct["petiole"] = petiole
-    
-    # Assign blade + all unassigned pixels to blade
-    blade = ((background + petiole) == 0) * 255
-    blade = blade.astype("uint8")
-    
-    ## Get leaf margin
-    margin_kernel = np.ones((5,5),np.uint8)
-    gradient = cv2.morphologyEx(blade, cv2.MORPH_GRADIENT, margin_kernel)
-    margin = np.where((blade == 255) & (gradient == 255), 255, 0).astype("uint8")
-    msk_dct["margin"] = margin
-
-    ## Get vein mask
-    blade_img = np.where(blade, img, 0)
-    lap_img = cv2.Laplacian(blade_img,cv2.CV_64F, ksize=lap_ksize)
-    
-    thin_veins = (lap_img < thin_th) * 255 #np.where(lap_img < -2500, 255, 0)
-    fat_veins = (lap_img < fat_th) * 255
-    skeleton_veins = cv2.ximgproc.thinning(fat_veins.astype("uint8"))
-    
-    veins = cv2.add(skeleton_veins,thin_veins.astype("uint8") ) 
-    marginless_veins = np.where((veins == 255) & (blade == 255) & (margin == 0), 255, 0)
-    msk_dct['vein'] = marginless_veins
-    
-    ## get leaf tissue 
-    # TODO remove margin == 0 shouldn't matter
-    tissue = np.where((marginless_veins == 0) & (blade == 255) & (margin == 0), 255, 0)
-    msk_dct["tissue"] = tissue
-    
-    ## Check for overlap between masks
-    for tup in itertools.combinations(msk_dct, 2):
-        msk0 = msk_dct[tup[0]]
-        msk1 = msk_dct[tup[1]]
-        overlap = (msk0 == 255) & (msk1 == 255)
-        if overlap.any() == True:
-            print("'{} and {}' overlap".format(tup[0], tup[1]))
-            # plot_big(np.where(overlap, (255,255,255), (0,0,0)))
-            viz.plot_big(overlap * 255)
-            assert overlap.any() == False, "'{} and {}' overlap".format(tup[0], tup[1])
-
-    ## Create multi-color mask image (.jpg)
-    multi_msk = np.zeros((msk.shape[0], msk.shape[1], 3))
-    for name, partial_msk in msk_dct.items():
-        col_BGR = msk_col_dct[name]
-        partial_msk = partial_msk[:,:,None] # Add dimension for color
-        multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
-    
-    cv2.imwrite(BATCH_MULTIMSK_PATH + batch + "multimsk.tif",  multi_msk.astype("uint8"))
-
-
 # %% Create individual images per plant
 metals = ["Z"]
 
@@ -360,57 +282,62 @@ for metal in metals:
                                  metal, msk_col_dct, create_masks = True)
 
 # %% Get stats from image
+# TODO: profile time usage and improve speed
+
 metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
-substructures = obj_class_lst[1:] + ["plant", "rand_5", "rand_10"]
+substructures = obj_class_lst[1:] + ["plant", "rand_1", "rand_2", "rand_5"]
 df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
 
 plant_fns = os.listdir(PLANT_MSK_PATH)
-# plant loop
-for fn in plant_fns:
-    # load plant mask and multi-mask
-    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+# noise loop
+# for nlvl in ["10", "20", "50", "75", "90"]:
+for metal in metals:
+    # plant loop
+    for fn in plant_fns:
+        # load plant mask and multi-mask
+        msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+        
+        multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+        assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+           
+        # metals loop
+        for metal in metals:
+            # load metal image
+            metal_name = metal.split("_")[1]
+            METAL_PATH = "data/plant_" + metal_name + "img/"
+            img = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
+        
+            # TODO noise levels loop (if still relevant)
+            # substructure loop
+            for substrct in substructures:
+               # load correct mask
+               if substrct == "plant":
+                   layer_msk = msk
+               elif substrct == "rand_1":
+                   layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "1/" + fn, cv2.IMREAD_GRAYSCALE)
+               elif substrct == "rand_2":
+                   layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "2/" + fn, cv2.IMREAD_GRAYSCALE)
+               elif substrct == "rand_5":
+                   layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "5/" + fn, cv2.IMREAD_GRAYSCALE)
+               elif substrct in obj_class_lst[1:]:
+                   layer_msk = stats.get_layer(multimsk, msk_col_dct, substrct)
+               else:
+                   raise Exception("substructure: " + substrct + " is invalid")
+               subs_metal_image = stats.get_sub_ele_img(img, layer_msk)
+               abs_metal, n_pixels, meanC = stats.get_sub_ele_stats(subs_metal_image)
+               # A500 = stats.XrandPixel_value(layer_msk, img, fn, substrct, 500)
+               colnames = ["_".join((metal, substrct, metric)) for metric in ["abs", "n_pix", "meanC", ]] #"A500"
+               df.loc[df["fn"] == fn, colnames] = [abs_metal, n_pixels, meanC, ] #A500
     
-    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
-       
-    # metals loop
-    for metal in metals:
-        # load metal image
-        metal_name = metal.split("_")[1]
-        METAL_PATH = "data/plant_" + metal_name + "img/"
-        img = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
-    
-        # TODO noise levels loop (if still relevant)
-        # substructure loop
-        for substrct in substructures:
-           # load correct mask
-           if substrct == "plant":
-               layer_msk = msk
-           elif substrct == "rand_5":
-               layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "5/" + fn, cv2.IMREAD_GRAYSCALE)
-           elif substrct == "rand_10":
-               layer_msk = cv2.imread(PLANT_RANDMSK_PATH + "10/" + fn, cv2.IMREAD_GRAYSCALE)
-           elif substrct in obj_class_lst[1:]:
-               layer_msk = stats.get_layer(multimsk, msk_col_dct, substrct)
-           else:
-               raise Exception("substructure: " + substrct + " is invalid")
-           subs_metal_image = stats.get_sub_ele_img(img, layer_msk)
-           abs_metal, n_pixels, meanC = stats.get_sub_ele_stats(subs_metal_image)
-           A500 = stats.XrandPixel_value(layer_msk, img, fn, substrct, 500)
-           colnames = ["_".join((metal, substrct, metric)) for metric in ["abs", "n_pix", "meanC", "A500"]]
-           df.loc[df["fn"] == fn, colnames] = [abs_metal, n_pixels, meanC, A500]
-
-        # Calculate CQ for all substructures
-        CQ_colnames = ["_".join((metal, substrct, "CQ")) for substrct in substructures]
-        mean_colnames = ["_".join((metal, substrct, "meanC")) for substrct in substructures]
-        plant_mean_colname = "_".join((metal, "plant", "meanC"))
-        df[CQ_colnames] = df[mean_colnames].div(df[plant_mean_colname], axis=0)
-df.to_csv("data/Noccaea_CQsA500.csv")
+            # Calculate CQ for all substructures
+            CQ_colnames = ["_".join((metal, substrct, "CQ")) for substrct in substructures]
+            mean_colnames = ["_".join((metal, substrct, "meanC")) for substrct in substructures]
+            plant_mean_colname = "_".join((metal, "plant", "meanC"))
+            df[CQ_colnames] = df[mean_colnames].div(df[plant_mean_colname], axis=0)
+df.to_csv("data/Noccaea_CQs.csv")
 
 # %% Find units for "absolute"
-from scipy.stats.stats import pearsonr
-
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 sns.set_style("ticks")
 
@@ -424,6 +351,7 @@ plt.show()
 sns.scatterplot(x="metal_Z_plant_n_pix", y = "ICP:muXRF_ratio", data=df)
 plt.ylabel("ICP-AES : \u03BCXRF ratio")
 plt.xlabel("Plant Size [pixels]")
+plt.title("plant size versus ICP:muXRF ratio per plant")
 plt.savefig("data/output/results/ICP-AES_muXRF ratio_plantsize_cor.png", bbox_inches="tight")
 plt.show()
 
@@ -439,7 +367,9 @@ r,p = pearsonr(dfcor.Zn, dfcor.metal_Z_plant_abs)
 print(r,p)
 plt.ylabel("\u03BCXRF absolute zinc [-]")
 plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
-plt.title("r: " + str(r))
+plt.title("IPC-AES versus muXRF per plant")
+# plt.title("r: " + str(r))
+plt.savefig("data/output/results/ICP-AES versus muXRF.png", bbox_inches='tight')
 plt.show()
 
 
@@ -463,26 +393,44 @@ METAL_PATH = "data/plant_" + metal_name + "img/"
 random.seed(69)
 sns.set_style("ticks")
 df = pd.read_csv("data/Noccaea_CQsA500.csv", index_col=0)
+df = df.loc[df.batch.notna(),:]
 random_accessions = random.sample(list(df["Accession #"].unique()), 15)
 random_accessions.sort()
 # acc_strs = [str(x) for x in random_accessions]
 
+# Trying to draw error lines
 plt_df = df.loc[df["Accession #"].isin(random_accessions),["Accession #", "metal_Z_plant_meanC"]]
+line_x = plt_df["Accession #"].unique().tolist()
+line_x = np.array(list(zip(line_x, line_x)))
+line_y = np.zeros(line_x.shape)
+for i,acc in enumerate(plt_df["Accession #"].unique().tolist()):
+    line_y[i, 0] = plt_df.loc[plt_df["Accession #"] == acc, "metal_Z_plant_meanC"].min()
+    line_y[i, 1] = plt_df.loc[plt_df["Accession #"] == acc, "metal_Z_plant_meanC"].max()
+                  
 plt.figure(figsize=(7,5))
-sns.catplot(x="Accession #", y="metal_Z_plant_meanC", data=plt_df, jitter=False) #hue="Accession #", palette=msk_hex_palette, legend=False
+sns.catplot(x="Accession #", y="metal_Z_plant_meanC", data=plt_df, jitter=False, color='black') #hue="Accession #", palette=msk_hex_palette, legend=False
+# plt.plot(line_x, line_y)
 plt.ylabel("mean zinc concentration [-]")
 plt.savefig("data/output/article_images/mean_zinc_concentration.png", dpi=300)
 
 # %% Histograms of metals
 sns.reset_orig()
 metals = ["Zn","Ca","K","Ni"]
+minlst = []
+maxlst = []
+meanlst = []
+stdlst = []
 
 for metal in metals:
-    metalimg_path = RAW_TXT_PATH + batch + "- " + metal + ".txt"
-    img = np.loadtxt(metalimg_path, delimiter=",", skiprows=1).flatten()
-    plt.hist(img, bins=256, range=(img.min(), img.max()))   
-    # plt.hist(img.ravel(), bins=len(img.ravel())//10)
-    plt.show()
+    print(metal)
+    for batch in batchname_lst:
+        metalimg_path = RAW_TXT_PATH + batch + "- " + metal + ".txt"
+        img = np.loadtxt(metalimg_path, delimiter=",", skiprows=1).flatten()
+        print(img.mean(), img.std(), img.min(), img.max())
+        plt.hist(img.ravel(), bins=256, range=(img.min(), img.max()))
+        plt.title(metal + " " + batch)
+        # plt.hist(img.ravel(), bins=len(img.ravel())//10)
+        plt.show()
     
 # %% Correlate metals
 
@@ -691,14 +639,13 @@ plt.scatter(df["metal_Z_plant_meanC"], df["metal_Z_plant_n_pix"])
 plt.title('scatter of mean zinc versus plant size')
 
 
-# %% scatter CQs against each other
+# %% scatter substructure CQs against each other within metal
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 df["accession_str"] = df['Accession #'].astype(str)
 df_noNAN = df.loc[df['batch'].notna(),:]
 
 def return_pval(x,y):
     return pearsonr(x, y)[1]
-
 
 substructures = obj_class_lst[1:]
 metal = "metal_Z"
@@ -742,122 +689,294 @@ for i, substrct in enumerate(substructures):
 plt.savefig("data/output/results/CQ versus rel subs area.png", bbox_inches="tight")
 plt.show()
 
+# %% Plot H2 for all metals
+# TODO create grouped barchart (add columns for metal and substructure in R script)
 
-# %% Check whether means of subs sum up to mean of plant
-# CQ_cols =  [ name + "_CQ" for name in obj_class_lst[1:] ]
-# df["CQ_sum"] = df[CQ_cols].sum(axis=1)
-# plt.boxplot(df.loc[df['batch'].notna(), "CQ_sum"])
-
-mean_cols =  [ name + "_meanZC" for name in obj_class_lst[1:] ]
-npixel_cols = [ name + "_npixel" for name in obj_class_lst[1:] ]
-weighted_means = [ name + "_weightedZC" for name in obj_class_lst[1:] ]
-
-# Check if n_pixels add up
-subs_npixel = df[npixel_cols].sum(axis=1)
-df["diff_npixel"] = df["plant_npixel"] - subs_npixel
-plt.boxplot(df.loc[df['batch'].notna(), "diff_npixel"])
-
-# weighted_means
-df[weighted_means] = df[mean_cols] * df[npixel_cols]
-df["plant_meanZC_check"] = (df[weighted_means].sum(axis=1) / df['plant_npixel']) - df['plant_meanZC']
-plt.boxplot(df.loc[df['batch'].notna(), "plant_meanZC_check"])
+H2 = pd.read_csv("data/H2_table.csv", index_col=0)
+# sns.set_style("ticks")
+substructures = obj_class_lst[1:]
+metals = ['Z', 'K', 'Ni', 'Ca']
+metrics = ["plant_n_pix", "plant_meanC"] + substructures + \
+    ["rand_1"] #, "rand_10"]
+i_names = ["plant size", "mean [Zn]", "petiole CQ", "margin CQ", "vein CQ", "tissue CQ", 
+           "random \nsubstructure \nCQ"] #, "random 10 CQ"]
+colors = [np.array((105,105,105))/256, np.array((169,169,169))/256] + \
+    [msk_hex_palette[s] for s in substructures] + \
+        [np.array((119,136,153)) / 256] #, np.array((119,136,153))/256]
+palette = {k:v for k,v in zip(i_names, colors)}
 
 
-# df["mean_of_means"] = df[mean_cols].sum(axis=1) / len(mean_cols)
+bars = ["_".join((m, "metal", metals[0])) for m in metrics]
+data = H2.loc[bars, "H2_percent"]
+data.index = i_names
+sns.barplot(x=data.index, y=data.values, palette=colors)
+plt.ylabel("H2 (%)")
+plt.xticks(rotation=45)
+plt.ylim((0,100))
+plt.savefig("data/output/article_images/CQSizeMeanRand_H2.png", dpi=300, bbox_inches="tight")
+plt.show()
 
+xlabs = ["Zn", "K", "Ni", "Ca"]
+# plt.figure(figsize=(10,10))
+indexnames = []
+sub_names = []
 
-# %% check if all mask pixels are assigned to a multimask layer
-
-# %% create mask r-cnn dictionary and images
-# TODO first got id "0" this should be reserved for bg right?
-
-from skimage import io
-from skimage import color
-from seaborn import color_palette
-
-# Create images from polygons
-with open(LEAFPOLY_DCT_PATH, "rb") as f:
-    leaf_polydct = pickle.load(f)
-
-
-# Create forward leaf type color dct
-leaftypes_rep2 = []
-for leaftype in leaf_types:
-    leaftypes_rep2.extend([leaftype, leaftype])
-
-cols_float = color_palette("hls", 8)
-cols_int = []
-for col in cols_float:
-    col = tuple([int(x * 255) for x in col])
-    cols_int.append(col)
-
-fwd_coldct = {'first':[cols_int[0], cols_int[1]], 'grown_1':[cols_int[2], cols_int[3]],
-              'grown_2':[cols_int[4],cols_int[5]], 'developping':[cols_int[6],cols_int[7]]}
-bwd_coldct = {cols_int[0]:('first', 1), cols_int[1]:('first', 1), cols_int[2]:('grown_1', 2),
-              cols_int[3]:('grown_1', 2), cols_int[4]:('grown_2', 3), cols_int[5]:('grown_2', 3),
-              cols_int[6]:('developping', 4),cols_int[7]:('developping', 4)
-    }
-
-
-with open("data/output/ML_imgs/col_classid_dct.pck", "wb") as f:
-    pickle.dump(bwd_coldct, f)
-
-ML_msk_path =  "data/output/ML_imgs/mask/"
-ML_img_path = "data/output/ML_imgs/image/"
-
-for fn in leaf_polydct.keys():
-    plant_img = io.imread(PLANT_IMG_PATH + fn)
-    img_rgb = color.gray2rgb(plant_img)
-
-    mrcnn_msk = np.zeros((plant_img.shape[0], plant_img.shape[1], 3))
-    mrcnn_msk_cop = mrcnn_msk.copy()
+for i, metal in enumerate(metals):
+    indexnames += ["_".join((substrct, "metal", metal)) for substrct in substructures]
+    sub_names += substructures
+metal_names = [metals[0]]*4 + [metals[1]]*4 + [metals[2]]*4 + [metals[3]]*4
     
-    for leaftype in leaf_types: # Randomizing because some leaf masks overlap, leaf class coming out on top is random
-        for i,polygon in enumerate(leaf_polygon_dct[fn][leaftype]):
-            cv2.drawContours(mrcnn_msk, [polygon], 0, fwd_coldct[leaftype][i], -1)
-    # plt.subplot(2,1,1)
-    # plt.imshow(mrcnn_msk.astype("int32"))
-    # plt.subplot(2,1,2)
-    # plt.imshow(img_rgb)
-    # break
-    io.imsave(ML_msk_path + fn.split(".")[0] + "_label.png", mrcnn_msk.astype("uint8"))
-    io.imsave(ML_img_path + fn.split(".")[0] + "_rgb.png", img_rgb)
-    
+data = pd.DataFrame(H2.loc[indexnames,"H2_percent"])
+data['substructures'] = sub_names
+data['metals'] = metal_names
+# plt.subplot(2,2,i + 1)
+sns.barplot(x=data.metals, y=data.H2_percent, 
+            hue=data.substructures, palette=msk_hex_palette) #(data=data,x=data.index, y=data.H2_percent, hue=data.index)
+# plt.title(plt_titles[i])
+plt.ylabel("H2 (%)")
+plt.xlabel("")
+plt.xticks(ticks=range(4), labels=xlabs, rotation=0)
+plt.ylim((0,100))
+plt.legend(bbox_to_anchor=(1.32, 1),loc = 'upper right')
+plt.savefig("data/output/article_images/CQ_H2_substrs.png", dpi=300, bbox_inches="tight")
+plt.show()
 
-mask = []
-for fn in leaf_polydct.keys():
-    img = io.imread(ML_msk_path + fn.split(".")[0] + "_label.png")
-    img_colors = np.unique(img.reshape(-1, img.shape[2]), axis=0, return_inverse=True)
-    background = np.array([0,0,0]) # Background is black
-    class_id_lst = []
-    for i, color in enumerate(img_colors[0]):
-        if (color != background).any():
-            bin_mask = np.where(img_colors[1] == i, True, False).astype(int)
-            bin_mask = np.reshape(bin_mask, img.shape[:2]) # Shape back to 2D
-            class_name = bwd_coldct[tuple(color)][0]
-            class_id = bwd_coldct[tuple(color)][1]
-            plt.imshow(bin_mask)
-            plt.title(class_name + " " + str(class_id))
-            plt.show()
-            mask.append(bin_mask)
-    import pdb; pdb.set_trace()
+# Plot H2 for noised images
+H2_noised = pd.read_csv("data/H2_noised_table.csv", index_col=0)
+indexnames = []
+sub_names = []
+metal = "Z"
+noise_levels = ["10", "20", "50", "75", "90"]
+noise_names = [10,20,50,75,90] * 4
+noise_names.sort()
+noise_names = list(map(str, noise_names))
+
+for nlvl in noise_levels:
+    indexnames += ["_".join(("noise", nlvl, substrct, "metal", metal)) for substrct in substructures]
+    sub_names += substructures
+
+
+data = pd.DataFrame(H2_noised.loc[indexnames, "H2_percent"])
+data['substructures'] = sub_names
+data['noise level'] = noise_names
+sns.barplot(x=data["noise level"], y=data.H2_percent, 
+            hue=data.substructures, palette=msk_hex_palette) #(data=data,x=data.index, y=data.H2_percent, hue=data.index)
+plt.ylabel("H2 (%)")
+plt.xlabel("Pixels changed to random class (%)")
+plt.xticks(ticks=range(5), labels=noise_levels, rotation=0)
+plt.ylim((0,100))
+plt.legend(bbox_to_anchor=(1.32, 1),loc = 'upper right')
+plt.savefig("data/output/article_images/CQ_H2_Noise_substrs.png", dpi=300, bbox_inches="tight")
+
+
+# %% Get correlations between metals within substructures
+df = pd.read_csv("data/Noccaea_CQsA500.csv")
+df_noNAN = df.loc[df['batch'].notna(),:]
+
+def return_pval(x,y):
+    return pearsonr(x, y)[1]
+
+substructures = obj_class_lst[1:]
+metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+
+for substr in substructures:
+    pairplt_vars = [ "_".join((metal, substr, "CQ")) for metal in metals]
+    CQmetal_pair_corrs = df_noNAN[pairplt_vars].corr(method='pearson')
+    CQmetal_pair_corrs.columns = metals
+    CQmetal_pair_corrs.index = metals
+    sns.heatmap(CQmetal_pair_corrs, annot=True, cbar=False, cmap="viridis")
+    plt.title(substr)
+# plt.savefig("data/output/article_images/CQ_paircorr.png", dpi=300)
+
+    plt.show()    
+    CQ_pair_cor_pval = df_noNAN[pairplt_vars].corr(method=return_pval)
+    g = sns.pairplot(df_noNAN[pairplt_vars]) # , 
+    plt.show()
+
+# %% Visualize confusion matrix
+randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
+
+from sklearn import metrics
+labels =  ["petiole", "margin", "vein", "tissue" ]
+Y_obs = randpix_df["obs_class"]
+Y_pred =  randpix_df["pred_class"]
+conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
+print(conf_matrix)
+sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
+conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+plt.figure(figsize=(4,5))
+p = sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
+p.set_xticklabels(labels, rotation=90)
+p.set_yticklabels(labels, rotation=0)
+plt.legend([],[], frameon=False)
+
+# plt.savefig("data/output/article_images/confusion_matrix.png", dpi=300,
+            # bbox_inches="tight")
+
+plt.show()
+F_scores = metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average=None)
+
+# F_scores = []
+# for i in range(len(para_df)):
+#     Y_pred =  randpix_df["pred_class_" + str(i)]
+#     conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
+#     conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+#     sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True)
+#     F_scores.append(metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average='weighted'))
+#     plt.show()
+
+# %% Sensitivity analysis
+randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
+para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
+xy_tuplst = list(zip(randpix_df.x.tolist(), randpix_df.y.tolist()))
+randpix_df["xy"] = xy_tuplst
+
+with open(POLY_DCT_PATH, "rb") as f:
+    polygon_dct = pickle.load(f)
+
+for i in range(len(para_df)):
+    blade_ksize, lap_ksize, thin_th, fat_th = para_df.loc[i, ['blade_ksize', 'lap_ksize', 'thin_th', 'fat_th']]
+    randpix_df["pred_class_" +str(i)] =np.nan
+
+    for batch in batchname_lst:
+        multi_msk = processing.create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
+                             blade_ksize, lap_ksize, thin_th, fat_th,
+                             msk_col_dct, BATCH_MULTIMSK_PATH)
         
-
-# %% copy test val to right folders
-from sklearn.model_selection import train_test_split
-
-ML_msk_path =  "data/output/ML_imgs/mask/"
-ML_img_path = "data/output/ML_imgs/image/"
-
-train, test = train_test_split(os.listdir(ML_img_path))
-
-for fn in train:
-    fn_bare = fn[:-7]
-    fn_mask = fn_bare + "label.png"
+        # Divide batch multimask into individual plants
+        for acc_rep, polygon in polygon_dct[batch].items():
+            accession, replicate = acc_rep.split("_")
+            fn = "_".join([batch, accession, replicate])
+            fn += ".tif"
+            # Remove other plants
+            bged_multimsk = processing.poly_crop(multi_msk, polygon, 
+                                             col = (255,255,255), bg = msk_col_dct['background'])
+            
+            # Crop image to bounding box around polygon
+            x,y,w,h = cv2.boundingRect(polygon)
+            plant_multimsk = bged_multimsk[y:y+h,x:x+w]
+            
+            # Get pixel class from adusted multimask for the 4000 surveyed pixels
+            for substrct in obj_class_lst[1:]:
+                layer_msk = stats.get_layer(plant_multimsk,msk_col_dct,substrct)
+                x,y = np.where(layer_msk > 0 )
+                xy_lst = list(zip(x,y))
+                randpix_df.loc[(randpix_df.fn == fn) & (randpix_df.xy.isin(xy_lst)),"pred_class_"+str(i)] = class_dct_rev[substrct]             
     
+# %% Visualize sensitivity analysis
+# TODO fix the manual blade size part in tandem with sensitivity analysis itself
+from scripts.sensitivity_analysis import para_dct, para_map
+from sklearn.metrics import confusion_matrix, f1_score
+
+
+sens_df = pd.read_csv("data/rand_pred_pixel_sens.csv", index_col=0, header=0)
+para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
+
+colnames = ["".join(("pred_class_",str(i))) for i in range(3,19)]
+value_counts = sens_df[colnames].apply(pd.Series.value_counts)
+
+
+sens_res_df = pd.DataFrame(columns=["Parameter","Parameter Value","Substructure","Accuracy"])
+F1_df = pd.DataFrame(columns=["Parameter","Parameter Value","Substructure","F1"])
+y_true = sens_df.obs_class
+F_scores = {}
+for k,v in para_map.items():
+    colname = "".join(("pred_class_", str(k)))
+    cm = confusion_matrix(y_true, sens_df[colname], labels = [1,2,3,4], normalize="true")
+    acc = cm.diagonal()
+    parameter = "_".join((v.split("_")[0], v.split("_")[1]))
+    para_value = int(v.split("_")[2])
+    F1_scores = f1_score(y_true,sens_df[colname], labels = [1,2,3,4], average=None)
+
+    for i, accuracy in enumerate(acc):
+        substructure = class_dct[i + 1]
+        sens_res_df = sens_res_df.append({"Parameter":parameter,"Parameter Value":para_value,
+                                          "Substructure":substructure,"Accuracy":accuracy},
+                                         ignore_index=True)
+        F1_df = F1_df.append({"Parameter":parameter,"Parameter Value":para_value,
+                                          "Substructure":substructure,"F1":F1_scores[i]},
+                                         ignore_index=True)
+        
+# Repeat manually for blade_ksize parameter value 15 (default)
+colname = "pred_class"
+cm = confusion_matrix(y_true, sens_df[colname], labels = [1,2,3,4], normalize="true")
+acc = cm.diagonal()
+parameter = "blade_ksize"
+para_value = 15
+
+F1_scores = f1_score(y_true,sens_df[colname], labels = [1,2,3,4], average=None)
+
+for i, accuracy in enumerate(acc):
+    substructure = class_dct[i + 1]
+    sens_res_df = sens_res_df.append({"Parameter":parameter,"Parameter Value":para_value,
+                                      "Substructure":substructure,"Accuracy":accuracy},
+                                     ignore_index=True)
+    F1_df = F1_df.append({"Parameter":parameter,"Parameter Value":para_value,
+                                          "Substructure":substructure,"F1":F1_scores[i]},
+                                         ignore_index=True)
     
-    
-    
+xlabs = {"blade_ksize":"blade opening kernel size [pixels]",
+          "lap_ksize":"Laplacian kernel size [pixels]",
+          "thin_th":"Threshold on Laplacian (thin) [-]",
+          "fat_th": "Threshold on Laplacian (fat) [-]"}
+
+# Plot accuracy
+fig, axs = plt.subplots(2,2,figsize=(10,10))
+axs = axs.ravel()
+for i, para in enumerate(sens_res_df.Parameter.unique().tolist()):
+    # plt.subplot(2,2,i+1)
+    sns.barplot(data=sens_res_df.loc[sens_res_df.Parameter == para,:],
+        x="Parameter Value", y="Accuracy", hue="Substructure",
+        palette=msk_hex_palette, ax=axs[i])
+    axs[i].get_legend().remove()
+    axs[i].set_xlabel(xlabs[para])
+    axs[i].set_ylim(0.,1.0)
+handles, labels = axs[-1].get_legend_handles_labels()
+fig.legend(handles, labels, bbox_to_anchor=(1.1, 0.8),loc = 'upper right')
+plt.subplots_adjust(left=0.07, right=0.93, wspace=0.25, hspace=0.25)
+fig.savefig('data/output/article_images/Acc_sensitivity.png', bbox_inches='tight')
+
+# Plot F1 scores
+fig, axs = plt.subplots(2,2,figsize=(10,10))
+axs = axs.ravel()
+for i, para in enumerate(F1_df.Parameter.unique().tolist()):
+    # plt.subplot(2,2,i+1)
+    sns.barplot(data=F1_df.loc[F1_df.Parameter == para,:],
+        x="Parameter Value", y="F1", hue="Substructure",
+        palette=msk_hex_palette, ax=axs[i])
+    axs[i].get_legend().remove()
+    axs[i].set_xlabel(xlabs[para])
+    axs[i].set_ylim(0.,1.0)
+handles, labels = axs[-1].get_legend_handles_labels()
+fig.legend(handles, labels, bbox_to_anchor=(1.1, 0.8),loc = 'upper right')
+plt.subplots_adjust(left=0.07, right=0.93, wspace=0.25, hspace=0.25)
+fig.savefig('data/output/article_images/F1_sensitivity.png', bbox_inches='tight')
+
+# %% Inspect erronous pixels
+randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
+answer = ""
+while answer != "stop":
+    answer = input("class, stop: ")
+    row = randpix_df.loc[(randpix_df["obs_class"] == int(answer)) & 
+                         (randpix_df["obs_class"] != randpix_df["pred_class"]),:].sample()
+    fn = row.fn.values[0]
+    img = cv2.imread(PLANT_IMG_PATH + fn)
+    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
+
+    print("true", row.obs_class, "pred", row.pred_class)
+    x,y = row.x.values[0], row.y.values[0]
+    img[x, y] = (0,0,255)
+    cv2.circle(img, (y,x), 10, (0,0,255))
+       
+    nb = min(x + 50, img.shape[0])
+    sb = max(0, x - 50)
+    eb = max(0, y - 50)
+    wb = min(y + 50, img.shape[1])
+    viz.plot_big2(img[sb:nb, eb:wb], multimsk[sb:nb, eb:wb])
+    if input("save? ") == "yes":
+        cv2.imwrite("data/output/article_images/wrongclass_img_" + answer + "_" + fn + ".png", img[sb:nb, eb:wb])
+        cv2.imwrite("data/output/article_images/wrongclass_multimsk_" + answer + "_" + fn + ".png", multimsk[sb:nb, eb:wb])
+        
 # %% Find smallest, medium and largest plant
 df = pd.read_csv("data/Noccaea_CQsA500.csv")
 sorted_df = df.loc[df["batch"].notna(),:].sort_values(by="metal_Z_plant_n_pix")
@@ -892,166 +1011,9 @@ for msk in [multimsk, bigsquare_multimsk]:
     plot_big(msk)
     print(stats.get_sub_ele_stats(subs_metal_image))
     
-# %% Sensitivity analysis
-randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
-para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
-xy_tuplst = list(zip(randpix_df.x.tolist(), randpix_df.y.tolist()))
-randpix_df["xy"] = xy_tuplst
-
-with open(POLY_DCT_PATH, "rb") as f:
-    polygon_dct = pickle.load(f)
-
-
-
-for i in range(len(para_df)):
-    blade_ksize, lap_ksize, thin_th, fat_th = para_df.loc[i, ['blade_ksize', 'lap_ksize', 'thin_th', 'fat_th']]
-    randpix_df["pred_class_" +str(i)] =np.nan
-
-    for batch in batchname_lst:
-        multi_msk = processing.create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
-                             blade_ksize, lap_ksize, thin_th, fat_th,
-                             msk_col_dct, BATCH_MULTIMSK_PATH)
-        
-        # Divide batch multimask into individual plants
-        for acc_rep, polygon in polygon_dct[batch].items():
-            accession, replicate = acc_rep.split("_")
-            fn = "_".join([batch, accession, replicate])
-            fn += ".tif"
-            # Remove other plants
-            bged_multimsk = processing.poly_crop(multi_msk, polygon, 
-                                             col = (255,255,255), bg = msk_col_dct['background'])
-            
-            # Crop image to bounding box around polygon
-            x,y,w,h = cv2.boundingRect(polygon)
-            plant_multimsk = bged_multimsk[y:y+h,x:x+w]
-            
-            # Get pixel class from adusted multimask for the 4000 surveyed pixels
-            for substrct in obj_class_lst[1:]:
-                layer_msk = stats.get_layer(plant_multimsk,msk_col_dct,substrct)
-                x,y = np.where(layer_msk > 0 )
-                xy_lst = list(zip(x,y))
-                randpix_df.loc[(randpix_df.fn == fn) & (randpix_df.xy.isin(xy_lst)),"pred_class_"+str(i)] = class_dct_rev[substrct]             
-    
-# %% Visualize confusion matrix
-randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
-
-from sklearn import metrics
-labels =  ["petiole", "margin", "vein", "tissue" ]
-Y_obs = randpix_df["obs_class"]
-Y_pred =  randpix_df["pred_class"]
-conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
-print(conf_matrix)
-sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
-conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
-plt.figure(figsize=(4,5))
-p = sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
-p.set_xticklabels(labels, rotation=90)
-p.set_yticklabels(labels, rotation=0)
-plt.legend([],[], frameon=False)
-
-# plt.savefig("data/output/article_images/confusion_matrix.png", dpi=300,
-            # bbox_inches="tight")
-
-plt.show()
-F_scores = metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average=None)
-
-# F_scores = []
-# for i in range(len(para_df)):
-#     Y_pred =  randpix_df["pred_class_" + str(i)]
-#     conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
-#     conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
-#     sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True)
-#     F_scores.append(metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average='weighted'))
-#     plt.show()
-
-# %% Visualize sensitivity analysis
-from scripts.sensitivity_analysis import para_dct, para_map
-from sklearn.metrics import confusion_matrix
-
-sens_df = pd.read_csv("data/rand_pred_pixel_sens.csv", index_col=0, header=0)
-para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
-
-colnames = ["".join(("pred_class_",str(i))) for i in range(3,19)]
-value_counts = sens_df[colnames].apply(pd.Series.value_counts)
-
-
-sens_res_df = pd.DataFrame(columns=["Parameter","Parameter Value","Substructure","Accuracy"])
-y_true = sens_df.obs_class
-for k,v in para_map.items():
-    colname = "".join(("pred_class_", str(k)))
-    cm = confusion_matrix(y_true, sens_df[colname], labels = [1,2,3,4], normalize="true")
-    acc = cm.diagonal()
-    parameter = "_".join((v.split("_")[0], v.split("_")[1]))
-    para_value = int(v.split("_")[2])
-    for i, accuracy in enumerate(acc):
-        substructure = class_dct[i + 1]
-        sens_res_df = sens_res_df.append({"Parameter":parameter,"Parameter Value":para_value,
-                                          "Substructure":substructure,"Accuracy":accuracy},
-                                         ignore_index=True)
-        
-# Repeat manually for blade_ksize parameter value 15 (default)
-colname = "pred_class"
-cm = confusion_matrix(y_true, sens_df[colname], labels = [1,2,3,4], normalize="true")
-acc = cm.diagonal()
-parameter = "blade_ksize"
-para_value = 15
-for i, accuracy in enumerate(acc):
-    substructure = class_dct[i + 1]
-    sens_res_df = sens_res_df.append({"Parameter":parameter,"Parameter Value":para_value,
-                                      "Substructure":substructure,"Accuracy":accuracy},
-                                     ignore_index=True)
-    
-xlabs = {"blade_ksize":"blade opening kernel size [pixels]",
-          "lap_ksize":"Laplacian kernel size [pixels]",
-          "thin_th":"Threshold on Laplacian (thin) [-]",
-          "fat_th": "Threshold on Laplacian (fat) [-]"}
-fig, axs = plt.subplots(2,2,figsize=(10,10))
-axs = axs.ravel()
-for i, para in enumerate(sens_res_df.Parameter.unique().tolist()):
-    # plt.subplot(2,2,i+1)
-    sns.barplot(data=sens_res_df.loc[sens_res_df.Parameter == para,:],
-        x="Parameter Value", y="Accuracy", hue="Substructure",
-        palette=msk_hex_palette, ax=axs[i])
-    axs[i].get_legend().remove()
-    axs[i].set_xlabel(xlabs[para])
-    axs[i].set_ylim(.4,1.0)
-handles, labels = axs[-1].get_legend_handles_labels()
-# fig.legend(handles, labels, loc='lower left', bbox_to_anchor= (0.0, 1.01))
-# fig.legend(handles, labels, loc='lower left', bbox_to_anchor= (1, 1), ncol=2,
-#             borderaxespad=0, frameon=False)
-fig.legend(handles, labels, bbox_to_anchor=(1.1, 0.8),loc = 'upper right')
-plt.subplots_adjust(left=0.07, right=0.93, wspace=0.25, hspace=0.25)
-# fig.savefig()
-# plt.tight_layout()
-# fig.legend(handles, labels)
-# plt.tight_layout()
-fig.savefig('data/output/article_images/sensitivity.png', bbox_inches='tight')
-# plt.subplots_adjust(left=0.1, bottom=0.1, right=0.1)
-
-# %% Inspect erronous pixels
-randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
-answer = ""
-while answer != "stop":
-    answer = input("class, stop: ")
-    row = randpix_df.loc[(randpix_df["obs_class"] == int(answer)) & 
-                         (randpix_df["obs_class"] != randpix_df["pred_class"]),:].sample()
-    fn = row.fn.values[0]
-    img = cv2.imread(PLANT_IMG_PATH + fn)
-    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
-
-    print("true", row.obs_class, "pred", row.pred_class)
-    x,y = row.x.values[0], row.y.values[0]
-    img[x, y] = (0,0,255)
-    cv2.circle(img, (y,x), 10, (0,0,255))
-       
-    nb = min(x + 50, img.shape[0])
-    sb = max(0, x - 50)
-    eb = max(0, y - 50)
-    wb = min(y + 50, img.shape[1])
-    plot_big2(img[sb:nb, eb:wb], multimsk[sb:nb, eb:wb])
-    if input("save? ") == "yes":
-        cv2.imwrite("data/output/article_images/wrongclass_img_" + answer + "_" + fn + ".png", img[sb:nb, eb:wb])
-        cv2.imwrite("data/output/article_images/wrongclass_multimsk_" + answer + "_" + fn + ".png", multimsk[sb:nb, eb:wb])
-        
-
-    
+# %% Create noised masks
+for percentage in [90]: 
+    processing.create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage)
+# %% Create random substructures
+for N_pixels in [1,2,5]:
+    processing.create_rand_substructure(PLANT_MSK_PATH, PLANT_RANDMSK_PATH, N_pixels)

@@ -10,6 +10,7 @@ import cv2
 import pickle
 import pandas as pd
 import os
+import random
 
 from scripts import viz
 
@@ -166,6 +167,7 @@ def make_individual_plant_images(POLYGON_DCT_PATH, batch, RAW_TIFF_PATH,
         plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
         # np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
         import pdb; pdb.set_trace()
+
 def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
                      blade_ksize, lap_ksize, thin_th, fat_th,
                      msk_col_dct, BATCH_MULTIMSK_PATH):
@@ -244,6 +246,29 @@ def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH,
         multi_msk = np.where(partial_msk == 255, col_BGR, multi_msk)
     return multi_msk
 
+def create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage):
+    # Check for folder existence and create
+    fraction = percentage / 100
+    if not os.path.exists("data/plant_noisemsk/" + str(percentage)):
+        os.makedirs("data/plant_noisemsk/" + str(percentage))
+
+    # Load masks, inject noise and write to disk
+    for fn in plant_fns:
+        multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
+        msk = cv2.imread(PLANT_MSK_PATH + fn, cv2.IMREAD_GRAYSCALE)
+        noised_msk = multimsk.copy()
+            
+        x,y = np.where(msk == 255)
+        n_pixels = int(len(x) * fraction)
+        
+        i_lst = random.sample(range(len(x)), n_pixels) 
+        cols = np.array([col for k, col in msk_col_dct.items() if k != "background"])
+        col_lst = cols[np.random.choice(len(cols), size = n_pixels)]
+        noised_msk[x[i_lst], y[i_lst]] = col_lst
+        
+        cv2.imwrite("data/plant_noisemsk/" + str(percentage) + "/" + fn, noised_msk)
+        
+
 # %% Create df with random CQs to test
 phenotypes = ("plant_npixel","petiole_CQ","margin_CQ","vein_CQ","tissue_CQ")
 genotype_n = 86
@@ -256,50 +281,33 @@ for pt in phenotypes:
     
 random_df.to_csv("data/random_CQs.csv")
 
-# %% Create noised Zimages
 
-# Per image create histogram of pixel intensity under mask and pick random values from 
-# histogram for x% of pixels
-# for perc in [100]: #10, 20
-#     for fn in os.listdir(PLANT_MSK_PATH):
-#         # plant_msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-#         # assert isinstance(plant_msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
-        
-#         Zfn = fn.split(".")[0] + ".txt"
-#         Zimg = np.genfromtxt(PLANT_ZIMG_PATH + Zfn, delimiter=",")
-#         Zimg_1D = Zimg.ravel()
-#         hist = np.delete(Zimg_1D, np.argwhere(Zimg_1D == 0)) # Get all non-background values
-#         N = int(Zimg.size * (perc / 100))
-#         random_pixels = (np.random.randint(0, Zimg.shape[0] - 1, size=N), 
-#                           np.random.randint(0, Zimg.shape[1] - 1, size=N))
-#         random_values = np.random.choice(hist, size=N)
-#         Zimg[random_pixels] = random_values
-#         np.savetxt(PLANT_ZIMG_NOISE_PATH + str(perc) + "/" + Zfn, Zimg, fmt='%f', delimiter=",")
-        
-# # %% Create random substructure
+# %% Create random substructure
 # import random
 
-# for N_pixels in [5]:
-#     for fn in os.listdir(PLANT_MSK_PATH):
+def create_rand_substructure(PLANT_MSK_PATH, PLANT_RANDMSK_PATH, N_pixels):
+    if not os.path.exists(PLANT_RANDMSK_PATH + str(N_pixels)):
+        os.makedirs(PLANT_RANDMSK_PATH + str(N_pixels))
+    for fn in os.listdir(PLANT_MSK_PATH):
         
-#         # Load plant mask
-#         msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-#         assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
+        # Load plant mask
+        msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+        assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(PLANT_MSK_PATH + fn)
         
-#         # Create empty mask
-#         rand_msk = np.zeros(msk.shape, dtype="uint8")
+        # Create empty mask
+        rand_msk = np.zeros(msk.shape, dtype="uint8")
         
-#         # Select 10 random pixels
-#         x,y = np.where(msk == 1 )
-#         i_lst = random.sample(range(len(x)), N_pixels)
-#         rand_msk[x[i_lst], y[i_lst]] = 1
+        # Select 10 random pixels
+        x,y = np.where(msk == 1 )
+        i_lst = random.sample(range(len(x)), N_pixels)
+        rand_msk[x[i_lst], y[i_lst]] = 1
         
-#         # Dilate pixels (multiple times?)
-#         kernel = np.ones((15,15),np.uint8)
-#         dil_msk = cv2.dilate(rand_msk, kernel, iterations = 1)
+        # Dilate pixels
+        kernel = np.ones((30,30),np.uint8)
+        dil_msk = cv2.dilate(rand_msk, kernel, iterations = 1)
         
-#         # Crop to plant mask
-#         dil_msk = dil_msk & msk
-#         dil_msk = dil_msk * 255
+        # Crop to plant mask
+        dil_msk = dil_msk & msk
+        dil_msk = dil_msk * 255
         
-#         cv2.imwrite(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  dil_msk)
+        cv2.imwrite(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  dil_msk)

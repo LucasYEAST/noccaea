@@ -1,23 +1,30 @@
 #installing packages
 if (!require("doBy")) install.packages("doBy")
 if (!require("lme4")) install.packages("lme4")
+if (!require("lmtest")) install.packages("lmtest")
 
 #calling packages
 library("doBy")
 library(lme4)
 library(ggplot2)
+library(lmtest)
 
-input <- read.csv("data/Noccaea_CQsA500.csv", stringsAsFactors = T)
+
+input <- read.csv("data/Noccaea_CQs.csv", stringsAsFactors = T)
 input <- input[input$batch != "",] # Removes unprocessed (batch 3 + root rows)
 
 input$rep <- as.factor(input$Biological.replicate)
 input$genotype <- as.factor(input$Accession..)
-phenotypes <- c("plant_n_pix", "plant_meanC", "petiole", "margin", "vein", "tissue", "rand_5", "rand_10")
+phenotypes <- c("plant_n_pix", "plant_meanC", "petiole", "margin", "vein", "tissue", "rand_1", "rand_2", "rand_5")
 
 metals <- c("metal_Z", "metal_K", "metal_Ni", "metal_Ca")
-metric <- "CQ" 
-results <- c()
+# noise_levels <- c("10", "20", "50","75","90") 
+# metal <- "metal_Z"
+metric <- "CQ"
+
+
 for (metal in metals){
+# for (nlvl in noise_levels){
   result_labels <- paste(phenotypes, metal, sep="_")
   for (current_phenotype in phenotypes){
     if ((current_phenotype == "plant_n_pix") | (current_phenotype == "plant_meanC")){
@@ -27,9 +34,29 @@ for (metal in metals){
       colname <- paste(metal, current_phenotype, metric, sep = "_")
     }
     input$phenotype <- input[,colname]
+    # input$plant_meanC <- input[,paste(metal, "plant_meanC", sep = "_")]
     
-    #mixed effects model H2 calculation 
+    # Check assumptions
+    fit <- lm(phenotype ~ genotype, data = input)
+    par(mfcol = c(2,2))
+    plot(fit)
+    
+    test <- bptest(fit)
+    if (test["p.value"] < .05){
+      print(paste(colname, "not homoskedastic"))
+      print(test["p.value"])
+    }
+    
+    
+    #mixed effects model H2 calculation
+    par(mfrow=c(1,1)) 
     fitlmer_rand <- lmer(phenotype ~ (1|genotype), data = input, REML = TRUE) # + (1|row) + (1|column) if you needed 
+    hist(input$phenotype, main=colname)
+    print(plot(fitlmer_rand, main=colname))
+    coef(fitlmer_rand, main=colname)
+    qqnorm(resid(fitlmer_rand), main=colname)
+    
+    
     sum <- summary(fitlmer_rand)
     out <- as.data.frame(VarCorr(fitlmer_rand))
     if (current_phenotype == phenotypes[1]){
@@ -39,6 +66,9 @@ for (metal in metals){
       result[nrow(result) + 1,] = list(out$vcov[1], out$vcov[2])
     }
     
+    # mixed effects model H2 with plant meanC
+    # fitlmer_rand_meanC <- lmer(phenotype ~ (1|genotype) + (1|plant_meanC), data = input, REML = TRUE)
+    # out_meanC <- as.data.frame(VarCorr(fitlmer_rand_meanC))
   }
   
    
@@ -53,27 +83,28 @@ for (metal in metals){
     combined_results <- rbind(combined_results, result)
   }
   
-  ggplot(data=result, aes(x=row.names(result), y=H2_percent, fill=row.names(result))) +
+  print(ggplot(data=result, aes(x=row.names(result), y=H2_percent, fill=row.names(result))) +
     geom_bar(stat="identity") +
-    scale_x_discrete(limits = phenotypes) +
+    # scale_x_discrete(limits = phenotypes) +
     #scale_fill_brewer(palette="Dark2") +
     ylim(0,100) +
     xlab("phenotype attributes") +
     ylab("H2 (%)") +
     theme(axis.text.x = element_text(angle = 90)) +
     theme(legend.position = "none") +
-    ggtitle(metal) 
-  ggsave(paste0("data/output/plots/", metal, "_", metric, "_H2.png")) # Zimg_noise/H2.png
+    ggtitle(metal)) 
+  # ggsave(paste0("data/output/plots/", metal, "_", metric, "_H2.png")) # Zimg_noise/H2.png
   
   # sorted_result <- with(result,  result[order(row.names(result)) , ])
 }
 
+write.csv(combined_results, "data/H2_CQ_table.csv")
 
 # scatter plots for one phenotype
-# sampled_accessions <- sample(input$Accession.., 15)
-# input_plot <- input[input$Accession.. %in% sampled_accessions,]
-# input_plot$Accession.. <- as.factor(input_plot$Accession..)
-# ggplot(input_plot, aes(x=Accession.., y=rand_Z_CQ_40, color=Accession..)) + geom_point()
+sampled_accessions <- sample(input$Accession.., 15)
+input_plot <- input[input$Accession.. %in% sampled_accessions,]
+input_plot$Accession.. <- as.factor(input_plot$Accession..)
+ggplot(input_plot, aes(x=Accession.., y=metal_Ca_rand_1_CQ , color=Accession..)) + geom_point()
 # 
 
 # sum <- summaryBy(phenotype ~ genotype, data = input, FUN = c(mean, sd, length)) 

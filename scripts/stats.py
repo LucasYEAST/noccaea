@@ -41,7 +41,7 @@ def XrandPixel_value(layer_msk, img, fn, subs, X):
     x,y = np.where(layer_msk > 0 )
     if len(x) < X:
         print(fn, "substructure: ", subs, "has fewer pixels than X: ", len(x))
-        import pdb; pdb.set_trace()
+        print("can't calculate A500")
         return np.nan
     # Sum random substructure pixel values
     indices = random.sample(range(len(x)), X)
