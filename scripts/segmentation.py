@@ -155,7 +155,6 @@ def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH,
 
 # TODO this should be two or three separate functions
 # TODO rewrite comments
-def dilate_msk
 
 def crop_plant(polygon, batch_img, fg_msk, bg_color = None):
     """Uses manually drawn polygons to divide batch images/masks into individual plant images/masks

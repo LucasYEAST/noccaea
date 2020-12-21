@@ -7,7 +7,7 @@ Created on Mon Oct  5 14:55:31 2020
 import cv2
 import numpy as np
 from win32api import GetSystemMetrics
-
+from seaborn.categorical import _BarPlotter
 # ============================================================================
 
 FINAL_LINE_COLOR = (255, 255, 255)
@@ -91,6 +91,66 @@ def annotate(batch):
         print("not confirmed, enter again")
         annotate(batch)
 
+
+class _StackBarPlotter(_BarPlotter):
+    """ Stacked Bar Plotter
+ 
+    A modification of the :mod:`seaborn._BarPlotter` object with the added ability of
+    stacking bars either verticaly or horizontally. It takes the same arguments
+    as :mod:`seaborn._BarPlotter` plus the following:
+ 
+    Arguments
+    ---------
+    stack : bool
+        Stack bars if true, otherwise returns equivalent barplot as
+        :mod:`seaborn._BarPlotter`.
+    """
+    def draw_bars(self, ax, kws):
+        """Draw the bars onto `ax`."""
+        # Get the right matplotlib function depending on the orientation
+        barfunc = ax.bar if self.orient == "v" else ax.barh
+        barpos = np.arange(len(self.statistic))
+        
+        if self.plot_hues is None:
+            
+            # Draw the bars
+            barfunc(barpos, self.statistic, self.width,
+                    color=self.colors, align="center", **kws)
+
+            # Draw the confidence intervals
+            errcolors = [self.errcolor] * len(barpos)
+            self.draw_confints(ax,
+                            barpos,
+                            self.confint,
+                            errcolors,
+                            self.errwidth,
+                            self.capsize)
+        else:
+            # Stack by hue
+            for j, hue_level in enumerate(self.hue_names):
+
+                barpos_prior = None if j == 0 else np.sum(self.statistic[:, :j], axis=1)
+
+                # Draw the bars
+                if self.orient == "v":
+                    barfunc(barpos, self.statistic[:, j], self.nested_width,
+                            bottom=barpos_prior, color=self.colors[j], align="center",
+                            label=hue_level, **kws)
+                elif self.orient == "h":
+                    barfunc(barpos, self.statistic[:, j], self.nested_width,
+                            left=barpos_prior, color=self.colors[j], align="center",
+                            label=hue_level, **kws)
+
+                # Draw the confidence intervals
+                if self.confint.size:
+                    confint = self.confint[:, j] if j == 0 else np.sum(self.confint[:, :j], axis=1)
+                    errcolors = [self.errcolor] * len(barpos)
+                    self.draw_confints(ax,
+                                    barpos,
+                                    confint,
+                                    errcolors,
+                                    self.errwidth,
+                                    self.capsize)
 
 # ============================================================================
 

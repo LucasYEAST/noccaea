@@ -21,7 +21,7 @@ def get_sub_ele_img(plant_ele_img, sub_msk):
 
 def get_sub_ele_stats(sub_ele_img):
     abs_ele = sub_ele_img.sum()
-    n_pixels = (sub_ele_img > 0).sum()
+    n_pixels = (sub_ele_img != 0).sum()
     mean_C = abs_ele / n_pixels
     return(abs_ele, n_pixels, mean_C)
 

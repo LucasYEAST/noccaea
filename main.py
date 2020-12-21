@@ -9,15 +9,19 @@ from scripts import utils, segmentation, draw, stats, viz
 import cv2
 import numpy as np
 import pandas as pd
+
 import pickle
 import os
 import random
+import itertools
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import pearsonr
 # sns.set_style("ticks")
 sns.set(font_scale=1.3)
 sns.set_style("ticks")
+
 
 np.random.seed(69)
 
@@ -60,7 +64,6 @@ msk_hex_palette = dict(zip(obj_class_lst, msk_hex_palette))
 
 leaf_types = ["first", "grown_1", "grown_2", "developping"]
 leafmsk_col_dct = viz.get_colors(leaf_types, "hls")
-
 
 hex_msk_col_dct = {k:'#{:02x}{:02x}{:02x}'.format(v[2],v[1],v[0]) for k,v in msk_col_dct.items()}
 RGB_df = pd.Series(hex_msk_col_dct)
@@ -210,43 +213,54 @@ for metal in metals:
 df.to_csv("data/Noccaea_CQs.csv")
 
 # %% Find units for "absolute"
-df = pd.read_csv("data/Noccaea_CQsA500.csv")
+df = pd.read_csv("data/Noccaea_CQs.csv")
 sns.set_style("ticks")
+palette = itertools.cycle(sns.color_palette())
 
-df["ICP:muXRF_ratio"] = df["Zn"] / df["metal_Z_plant_abs"]
-outlier_abs_fn = df.loc[df["ICP:muXRF_ratio"] > 0.00075,"fn"].tolist()
-
-plt.scatter(df.index, df["ICP:muXRF_ratio"])
-plt.title("measured Zinc : machine vision zinc ratio")
-plt.show()
-
-sns.scatterplot(x="metal_Z_plant_n_pix", y = "ICP:muXRF_ratio", data=df)
-plt.ylabel("ICP-AES : \u03BCXRF ratio")
-plt.xlabel("Plant Size [pixels]")
-plt.title("plant size versus ICP:muXRF ratio per plant")
-plt.savefig("data/output/results/ICP-AES_muXRF ratio_plantsize_cor.png", bbox_inches="tight")
-plt.show()
-
-sns.scatterplot(x="metal_Z_plant_meanC", y = "ICP:muXRF_ratio", data=df)
-plt.ylabel("ICP-AES : muXRF ratio")
-plt.xlabel("mean Zinc concentration")
-plt.show()
+metals = ["Zn","Ca","K","Ni"]
+for metal in metals:
+    if metal == "Zn":
+        abs_metal = "metal_Z_plant_abs"
+    else:
+        abs_metal = "_".join(("metal", metal, "plant", "abs"))
+    
+    ratio = df[metal] / df[abs_metal]
+    sns.scatterplot(x=df["metal_Z_plant_n_pix"], y = ratio, color=next(palette))
+    plt.ylabel("ICP-AES : \u03BCXRF ratio")
+    plt.xlabel("Plant Size [pixels]")
+    # plt.title("plant size vs ICP:muXRF for: " + metal)
+    # plt.title("plant size versus ICP:muXRF ratio per plant")
+    plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
+    plt.show()
 
 
-sns.scatterplot(x="Zn", y = "metal_Z_plant_abs", data=df)
-dfcor = df.loc[(df.Zn.notna()) & (df.metal_Z_plant_abs.notna()),:]
-r,p = pearsonr(dfcor.Zn, dfcor.metal_Z_plant_abs)
-print(r,p)
-plt.ylabel("\u03BCXRF absolute zinc [-]")
-plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
-plt.title("IPC-AES versus muXRF per plant")
-# plt.title("r: " + str(r))
-plt.savefig("data/output/results/ICP-AES versus muXRF.png", bbox_inches='tight')
-plt.show()
+# outlier_abs_fn = df.loc[df["ICP:muXRF_ratio"] > 0.00075,"fn"].tolist()
+# plt.scatter(df.index, df["ICP:muXRF_ratio"])
+# plt.title("measured Zinc : machine vision zinc ratio")
+# plt.show()
 
 
-metal_name = "Z"
-METAL_PATH = "data/plant_" + metal_name + "img/"
+
+# sns.scatterplot(x="metal_Z_plant_meanC", y = "ICP:muXRF_ratio", data=df)
+# plt.ylabel("ICP-AES : muXRF ratio")
+# plt.xlabel("mean Zinc concentration")
+# plt.show()
+
+
+# sns.scatterplot(x="Zn", y = "metal_Z_plant_abs", data=df)
+# dfcor = df.loc[(df.Zn.notna()) & (df.metal_Z_plant_abs.notna()),:]
+# r,p = pearsonr(dfcor.Zn, dfcor.metal_Z_plant_abs)
+# print(r,p)
+# plt.ylabel("\u03BCXRF absolute zinc [-]")
+# plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
+# plt.title("IPC-AES versus muXRF per plant")
+# # plt.title("r: " + str(r))
+# plt.savefig("data/output/results/ICP-AES versus muXRF.png", bbox_inches='tight')
+# plt.show()
+
+
+# metal_name = "Z"
+# METAL_PATH = "data/plant_" + metal_name + "img/"
 
 # for fn in outlier_abs_fn:
 #     Zn_image = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
@@ -307,90 +321,190 @@ for metal in metals:
 # %% Correlate metals
 
 metals = ["Z","Ca","K","Ni"]
-metal_cor_dct = {metal:np.array([]) for metal in metals}
-for fn in plant_fns:   
-    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255
-    for metal in metals:
-        METAL_PATH = "data/plant_" + metal + "img/"
-        img = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
-        img = img[msk == 1]
-        img_norm = (img - img.min()) / (img.max() - img.min())
-        metal_cor_dct[metal] = np.append(metal_cor_dct[metal], img_norm)
+met_tup = itertools.combinations(metals, 2)
+met_str = [" vs ".join(tup) for tup in met_tup]
+metal_cor_dct = {"plant_fn":[], "accession #":[], "pairwise correlation":[], "r":[], "p":[]}
 
+for fn in plant_fns:
+    acc_nr = fn.split("_")[1]
+    
+    znimg = np.genfromtxt( "data/plant_Zimg/" + fn.split(".")[0] + ".txt", 
+                          delimiter=",")
+    kimg = np.genfromtxt( "data/plant_Kimg/" + fn.split(".")[0] + ".txt", 
+                          delimiter=",")
+    niimg = np.genfromtxt( "data/plant_Niimg/" + fn.split(".")[0] + ".txt", 
+                          delimiter=",")
+    caimg = np.genfromtxt( "data/plant_Caimg/" + fn.split(".")[0] + ".txt", 
+                          delimiter=",")
+    
+    # Get pixel-values under plant mask
+    msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255
+    pixval_dct = {"Z":znimg[msk == 1], "Ca":caimg[msk == 1], 
+                  "K":kimg[msk == 1], "Ni":niimg[msk == 1]}    
+
+    # Calculate correlations        
+    for string in met_str:
+        metal_cor_dct["accession #"].append(acc_nr)
+        metal_cor_dct["plant_fn"].append(fn)
+        metal_cor_dct["pairwise correlation"].append(string)
+        m1, m2 = string.split(" vs ")
+        r,p = pearsonr(pixval_dct[m1],pixval_dct[m2])
+        metal_cor_dct["r"].append(r)
+        metal_cor_dct["p"].append(p)
+
+# %%
 metal_cor_df = pd.DataFrame(metal_cor_dct)
-metal_correlations = metal_cor_df.sample(n=100000).corr()
-sns.pairplot(metal_cor_df.sample(5000))
+metal_cor_df["accession #"] = metal_cor_df["accession #"].astype(int)
+metal_cor_df.sort_values(by="accession #", axis=0, inplace=True)
+
+sns.stripplot(x="pairwise correlation", y="r", data=metal_cor_df, linewidth=1)
+plt.legend("")
+plt.ylabel("$\it{r}$")
+plt.xlabel("")
+# plt.xticks(range(6), ["Zn vs Ca", "Zn vs K", "Zn vs Ni", 
+#                       "Ca vs K", "Ca vs Ni", "K vs Ni"], rotation=45)
+plt.ylim(-1,1)
+plt.savefig("data/output/article_images/metal_cor.png", dpi=300, bbox_inches="tight")
+plt.show()
+
+accs = random.sample(metal_cor_df["accession #"].unique().tolist(), 15)
+plot_df = metal_cor_df.loc[metal_cor_df["accession #"].isin(accs),:]
+sns.catplot(x="accession #", y="r", data=plot_df, hue="pairwise correlation", jitter=False, linewidth=.5, s=5)
+plt.legend("")
+plt.ylim(-1,1)
+# fig = plt.figure(figsize=(10,10))
+plt.show()
+for i, pair in enumerate(met_str):
+    # ax = fig.add_subplot(2,3,i+1)
+    print(pair)
+    plt.figure(figsize=(20,8))
+    sns.stripplot(x="accession #", y="r", 
+                data=metal_cor_df.loc[metal_cor_df["pairwise correlation"] == pair,:], 
+                jitter=False, palette="Set2")
+    plt.xticks(fontsize=10, rotation=45)
+    plt.ylim(-1,1)
+    plt.savefig("data/output/article_images/sup_metalcor_"+pair+".png", dpi=300)
+    plt.show()
 
 # %% Get normalized mean concentration of substructures
 sns.set_style("ticks")
 mean_subC_dct = {substrct:[] for substrct in obj_class_lst[1:]}
+mean_subC_dct.update({"metal":[], "plant_fn":[]})
+metals = ["Z","Ca","K","Ni"]
 for fn in plant_fns:
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
-    img = np.genfromtxt("data/plant_Zimg/" + fn.split(".")[0] + ".txt", delimiter=",")
-    img_norm = (img - img.mean())/img.std() # Z-normalization
-    for substrct,lst in mean_subC_dct.items():
-        layer_msk = stats.get_layer(multimsk, msk_col_dct, substrct)
-        subs_metal_image = stats.get_sub_ele_img(img_norm, layer_msk)
-        _, _, meanC = stats.get_sub_ele_stats(subs_metal_image)
-        lst.append(meanC)
-
-mean_subC_df = pd.DataFrame(mean_subC_dct)       
-sns.boxplot(data=mean_subC_df, palette=msk_hex_palette)
+    msk = cv2.imread(PLANT_MSK_PATH + fn, cv2.IMREAD_GRAYSCALE) // 255
+    for metal in metals:
+        mean_subC_dct["metal"].append(metal) # annotate metal for dataframe
+        mean_subC_dct["plant_fn"].append(fn) # annotate plant file name for dataframe
+        # Open metal images
+        METAL_PATH = "data/plant_" + metal + "img/"
+        img = np.genfromtxt(METAL_PATH + fn.split(".")[0] + ".txt", delimiter=",")
+        
+        # Z-normalize plant concentrations with plant mean and std
+        img_mean = img[msk > 0].mean()
+        img_std = img[msk > 0].std()
+        img_norm = (img - img_mean) / img_std # Z-normalization
+        
+        # Calculate mean concentration of substructures
+        for substrct in obj_class_lst[1:]:
+            layer_msk = stats.get_layer(multimsk, msk_col_dct, substrct)
+            subs_metal_image = stats.get_sub_ele_img(img_norm, layer_msk)
+            meanC = subs_metal_image[layer_msk > 0].mean()
+            mean_subC_dct[substrct].append(meanC)
+        
+# Create dataframe
+mean_subC_df = pd.DataFrame(mean_subC_dct)
+mean_subC_df.to_csv("data/normalized_mean_subs_conc.csv")
 
 
 # %% Check normalized mean concentrations for significant differences
 from statsmodels.graphics.gofplots import qqplot
-from scipy.stats import shapiro, kruskal
+from scipy.stats import shapiro, kruskal, probplot
 import scikit_posthocs as sp
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
+from matplotlib.offsetbox import AnchoredText
 
-sns.set_style("ticks")
-mean_subC_df = pd.read_csv("data/mean_sub_conc.csv", index_col=0, header=0)
-# # Normally d=2)
+
+mean_subC_df = pd.read_csv("data/normalized_mean_subs_conc.csv", index_col=0, header=0)
+
+fig, axes = plt.subplots(nrows=1, ncols=4, figsize=(20,5))
+axes = axes.ravel()
+for i, metal in enumerate(metals):
+    df = mean_subC_df.loc[mean_subC_df["metal"] == metal,:]
+    sns.boxplot(data=df, palette=msk_hex_palette, ax=axes[i])
+    anchored_text = AnchoredText(metal, loc=1)
+    axes[i].add_artist(anchored_text)
+    axes[i].set_ylim(-2, 2.5)
+    
+    if i == 0:
+        axes[i].set_ylabel("plant mean normalized concentration")
+        
+plt.savefig("data/output/article_images/normalized_mean_substructure_conc.png", dpi=300,
+            bbox_inches="tight")
+plt.show()
 
 # Implement non-parametistributed? ANSWER, No
-# for substr in mean_subC_df.columns:
-#     mean_subC_df[substr].hist(bins=len(mean_subC_df)//2)
+# for metal in metals:
+#     df = mean_subC_df[mean_subC_df["metal"] == metal]
+
+#     for substr in obj_class_lst[1:]:
+#         # df[substr].hist(bins=len(df)//2, color=msk_hex_palette[substr])
+        
+#         stat, p = shapiro(df[substr])
+#         print('Statistics=%.3f, p=%.3f' % (stat, p))
+#         # interpret
+#         alpha = 0.05
+#         if p > alpha:
+#          	print('{}, sub: {}: Sample looks Gaussian (fail to reject H0)'.format(metal, substr))
+#         else:
+#          	print('{}, sub: {}: Sample does not look Gaussian (reject H0)'.format(metal, substr))
+#     plt.hist(df["petiole"], bins=len(df)//4,alpha=0.5, color=msk_hex_palette["petiole"])
+#     plt.hist(df["margin"], bins=len(df)//4,alpha=0.5, color=msk_hex_palette["margin"])
+#     plt.hist(df["vein"],bins=len(df)//4,alpha=0.5, color=msk_hex_palette["vein"])
+#     plt.hist(df["tissue"], bins=len(df)//4, alpha=0.5,color=msk_hex_palette["tissue"])
+#     plt.title(metal)
+
 #     plt.show()
-#     stat, p = shapiro(mean_subC_df[substr])
-#     print('Statistics=%.3f, p=%.3f' % (stat, p))
-#     # interpret
+# # Significant ANOVA?
+# for metal in metals:
+#     df = mean_subC_df[mean_subC_df["metal"] == metal].drop(["metal", "plant_fn"], axis="columns")
+#     df_melt = pd.melt(df.reset_index(), id_vars=['index'], value_vars=df.columns)
+#     df_melt.columns = ['index', 'treatments', 'value']
+#     df_melt = df_melt.drop("index", axis="columns")
+#     # Ordinary Least Squares (OLS) model
+#     model = ols('value ~ C(treatments)', data=df_melt).fit()
+#     stat, p = shapiro(model.resid)
 #     alpha = 0.05
 #     if p > alpha:
-#     	print('Sample looks Gaussian (fail to reject H0)')
+#         print(metal + ': Residuals look Gaussian (fail to reject H0)')
 #     else:
-#     	print('Sample does not look Gaussian (reject H0)')
+#         print(metal + ': Residuals do not look Gaussian (reject H0)')
+#     normality_plot, stat = probplot(model.resid, plot= plt, rvalue= True)
+#     plt.show()
+    # anova_table = sm.stats.anova_lm(model, typeric tests)
 
-# # Significant ANOVA?
-# df_melt = pd.melt(mean_subC_df.reset_index(), id_vars=['index'], value_vars=mean_subC_df.columns)
-# df_melt.columns = ['index', 'treatments', 'value']
-# # Ordinary Least Squares (OLS) model
-# model = ols('value ~ C(treatments)', data=df_melt).fit()
-# stat, p = shapiro(model.resid)
-# alpha = 0.05
-# if p > alpha:
-#     print('Residuals look Gaussian (fail to reject H0)')
-# else:
-#     print('Residuals do not look Gaussian (reject H0)')    
-# anova_table = sm.stats.anova_lm(model, typeric tests
-
-df = mean_subC_df
-stat, p = kruskal(df["petiole"],df['margin'],df['vein'],df['tissue'])
-print('Statistics=%.3f, p=%.3f' % (stat, p))
-# interpret
-alpha = 0.05
-if p > alpha:
-	print('Same distributions (fail to reject H0)')
-else:
-	print('Different distributions (reject H0)')
-
-plt.figure(figsize=(7,5))
-sns.boxplot(data=mean_subC_df, palette=msk_hex_palette)
-plt.ylabel("normalized mean concentration [-]")
-plt.savefig("data/output/article_images/normalized_mean_substructure_conc.png", dpi=300)
-sp.posthoc_dunn([df["petiole"],df['margin'],df['vein'],df['tissue']], p_adjust = 'bonferroni')
-
+for metal in metals:
+    print(metal)
+    df = mean_subC_df[mean_subC_df["metal"] == metal]
+    stat, p = kruskal(df["petiole"],df['margin'],df['vein'],df['tissue'],nan_policy ="omit")
+    print('Statistics=%.3f, p=%.3f' % (stat, p))
+    # interpret
+    alpha = 0.05
+    if p > alpha:
+     	print('Same distributions (fail to reject H0)')
+    else:
+     	print('Different distributions (reject H0)')
+    
+    # plt.figure(figsize=(7,5))
+    # sns.boxplot(data=df, palette=msk_hex_palette)
+    # plt.ylabel("normalized mean concentration [-]")
+    # plt.savefig("data/output/article_images/normalized_mean_substructure_conc.png", dpi=300)
+    post = sp.posthoc_dunn([df["petiole"],df['margin'],df['vein'],df['tissue']], p_adjust = 'bonferroni')
+    print(post)
+    # post = sp.posthoc_tukey([df["petiole"],df['margin'],df['vein'],df['tissue']])
+    # print(post)
 # for p,text in zip(ax.patches, ['a','b','c','d']):
 #     height = p.get_height()
 #     ax.text(p.get_x()+p.get_width()/2.,
@@ -399,9 +513,47 @@ sp.posthoc_dunn([df["petiole"],df['margin'],df['vein'],df['tissue']], p_adjust =
 #             ha="center")
 # plt.show()
 
+# %%
+# generate gaussian data samples
+from numpy.random import seed
+from numpy.random import randn
+from numpy import mean
+from numpy import std
+from scipy.stats import mannwhitneyu, ttest_ind
+# seed the random number generator
+seed(1)
+# generate two independent samples
+data1 = 5 * randn(100) + 50
+data2 = 5 * randn(100) + 51
+# compare samples
+# stat, p = mannwhitneyu(data1, data2)
+# print('Statistics=%.3f, p=%.3f' % (stat, p))
+# # interpret
+# alpha = 0.05
+# if p > alpha:
+# 	print('Same distribution (fail to reject H0)')
+# else:
+# 	print('Different distribution (reject H0)')
+
+df = mean_subC_df[mean_subC_df["metal"] == "K"]
+stat, p = mannwhitneyu(df["petiole"], df["vein"])
+stat, p = ttest_ind(df["petiole"], df["vein"])
+alpha = 0.05
+if p > alpha:
+	print('Same distribution (fail to reject H0)')
+else:
+	print('Different distribution (reject H0)')
+
+
+plt.hist(df["petiole"], bins=10, color='blue', alpha=0.5)
+plt.hist( df["vein"], bins=10, color='red', alpha=0.5)
+plt.show()
+
+
+
 # %% Show raw data that supports H2
 random.seed(69)
-df = pd.read_csv("data/Noccaea_CQsA500.csv")
+df = pd.read_csv("data/Noccaea_CQs.csv")
 sns.set_style("ticks")
 
 substructure = "petiole"
@@ -687,6 +839,14 @@ plt.legend([],[], frameon=False)
 
 plt.show()
 F_scores = metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average=None)
+precision = metrics.precision_score(Y_obs, Y_pred, labels=[1,2,3,4], average=None)
+recall = metrics.recall_score(Y_obs, Y_pred, labels=[1,2,3,4], average=None)
+print("f1")
+print(F_scores)
+print("precision")
+print(precision)
+print("recall")
+print(recall)
 
 # F_scores = []
 # for i in range(len(para_df)):
@@ -816,6 +976,12 @@ for i, para in enumerate(F1_df.Parameter.unique().tolist()):
     sns.barplot(data=F1_df.loc[F1_df.Parameter == para,:],
         x="Parameter Value", y="F1", hue="Substructure",
         palette=msk_hex_palette, ax=axs[i])
+    xticks = F1_df.loc[F1_df.Parameter == para,"Parameter Value"].unique().tolist()
+    xticks.sort()
+    xticks = [str(tick) for tick in xticks]
+    xticks[2] += "*"
+    axs[i].set_xticks(range(len(xticks)))
+    axs[i].set_xticklabels(xticks)
     axs[i].get_legend().remove()
     axs[i].set_xlabel(xlabs[para])
     axs[i].set_ylim(0.,1.0)
@@ -853,6 +1019,65 @@ while answer != "stop":
 # %% Create noised masks
 for percentage in [90]: 
     segmentation.create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage)
+
+# %% Check noise distribution
+rev_msk_col_dct = {v:k for k,v in msk_col_dct.items()}
+dct = {"plant_fn":[], "percentage":[], "noise_substruct":[]}
+dct.update({sbstrct:[] for sbstrct in obj_class_lst[1:]})
+
+for fn in plant_fns:
+    for percentage in ['10', '20', '50', '75', '90','100']:
+        
+        multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+        assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+        multimsk = multimsk.reshape(-1, multimsk.shape[2])
+        
+        noise_multimsk = cv2.imread("data/plant_noisemsk/" + percentage + "/" +  fn)
+        assert isinstance(noise_multimsk, np.ndarray), "{} doesn't exsit".format("data/plant_noisemsk/" + percentage + "/" +  fn)
+        noise_multimsk = noise_multimsk.reshape(-1, noise_multimsk.shape[2])
+        
+        for sbstrct in obj_class_lst[1:]:
+            dct["plant_fn"].append(fn)
+            dct["percentage"].append(percentage)
+            dct["noise_substruct"].append(sbstrct)
+            
+            # Return indices where noised image equals certain substruct
+            i_sub, _ = np.where(noise_multimsk == msk_col_dct[sbstrct])
+                        
+            # Count occurence of actual substruct under noised substruct pixels
+            actual_under_noise = multimsk[i_sub, :]
+            unique, counts = np.unique(actual_under_noise, return_counts=True, axis=0)
+            unique = [tuple(arr) for arr in list(unique)]
+            uc_dct = dict(zip(unique, counts))
+            for actual_sbstrct in obj_class_lst[1:]:
+                col = msk_col_dct[actual_sbstrct]
+                try: # Find counts of actual substruct under noised mask
+                    cnt = uc_dct[col]
+                    dct[actual_sbstrct].append((cnt/counts.sum()) * 100)
+                except KeyError: # Add 0 if no pixel counts for actual substruct
+                    dct[actual_sbstrct].append(0)
+                
+# %% plot noise distributions
+noise_dist_df = pd.DataFrame(dct)
+
+fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(10,10))
+axes = axes.ravel()
+for i, perc in enumerate(['10', '20', '50', '75','90','100']):
+    df = noise_dist_df.loc[noise_dist_df["percentage"] == perc,:]
+    df_summed = df.groupby("noise_substruct").sum()
+    df_perc = df_summed.apply(lambda x: x/x.sum() * 100, axis=1)
+    df_perc.plot.bar(stacked=True, color=msk_hex_palette, ax=axes[i])
+    # plt.xticks(range(4), obj_class_lst[1:])
+    if i%3 ==0:
+        axes[i].set_ylabel("actual pixels under noise (%)")
+    axes[i].set_xlabel("Noised classes ({}% noised)".format(perc))
+    
+    axes[i].get_legend().remove()
+plt.tight_layout()
+plt.legend(title="actual pix under nosie", bbox_to_anchor=(2.1, 2.2),loc = 'upper right')
+plt.savefig("data/output/article_images/noised_actual_dist.png", dpi=300, bbox_inches="tight")
+noise_dist_df.to_csv("data/noise_actual_dist_df.csv")
+
 # %% Create random substructures
 for N_pixels in [1,2,5]:
     segmentation.create_rand_substructure(PLANT_MSK_PATH, PLANT_RANDMSK_PATH, N_pixels)
