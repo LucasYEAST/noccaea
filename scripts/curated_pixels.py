@@ -35,7 +35,8 @@ class_dct_rev = {v:k for k,v in class_dct.items()}
 for fn in plant_fns:
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
     assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
-
+    
+    # For every class get all pixels
     for msk_class, lst in classpix.items():
         layer_msk = stats.get_layer(multimsk,msk_col_dct,msk_class)
         x,y = np.where(layer_msk > 0 )
@@ -43,7 +44,10 @@ for fn in plant_fns:
         class_lst = [class_dct_rev[msk_class]] * len(x)
         lst.extend(list(zip(fn_lst,x,y,class_lst)))
 
+# Select 1000 random pixels for every prediction class
 rand1000_classpix = {k : random.sample(v, 1000) for k,v in classpix.items()}
+
+# Create dataframe
 df_lst = []
 for lst in rand1000_classpix.values():
     df_lst.extend(lst)
@@ -51,9 +55,6 @@ randpix_df = pd.DataFrame(df_lst, columns = ("fn", "x", "y", "pred_class"))
 randpix_df.to_csv("data/rand_pred_pixel.csv")
 
 # %% color random pixels
-# randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
-# randpix_df["obs_class"] = randpix_df["obs_class"].astype(float)
-
 randpix_df = randpix_df.sample(frac=1) # Shuffle dataframe
 
 fn_lst = randpix_df.fn.unique().tolist()

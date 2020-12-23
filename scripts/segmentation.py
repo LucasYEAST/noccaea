@@ -18,6 +18,19 @@ import random
 from scripts import viz, draw
 
 def divide_plants(RAW_TIFF_PATH, batch, polygon_dct, POLY_DCT_PATH, df, DF_SAVE_PATH):
+    """Function to manually divide batches into separate plants and annotate with accession
+    Input:
+        RAW_TIFF_PATH: file path for raw compton scatter files
+        batch: batchname pointing to specific raw compton scatter file
+        polygon_dct: dictionary to store drawn polygons in
+        POLY_DCT_PATH: path to store polygon dictionary
+        df: dataframe with plant annotation
+        DF_SAVE_PATH: path to store dataframe with plant annotation
+    Output:
+        df: dataframe with plant annotation
+    """
+    
+    # Load batch compton scatter
     img = cv2.imread(RAW_TIFF_PATH + batch + "- " + "Image.tif", cv2.IMREAD_GRAYSCALE)
     all_plants_seen = False
     
@@ -51,13 +64,21 @@ def divide_plants(RAW_TIFF_PATH, batch, polygon_dct, POLY_DCT_PATH, df, DF_SAVE_
         return df
     
 def create_foreground_masks(RAW_TIFF_PATH, batch, layers, BATCH_MSK_PATH):
+    """Function to create plant foreground mask based on metal and/or compton scatter layers
+    Input:
+        RAW_TIFF_PATH: path where metal/compton scatter images are found
+        batch: filename of batch
+        BATCH_MSK_PATH: path to store created foreground mask"""
     binary_mask_lst = []
+    assert len(binary_mask_lst == 3), "Function currently only works with 3 layers, see TODO below"
+    
+    # Load metal/compton scatter layers
     for layer in layers:
         img = cv2.imread(RAW_TIFF_PATH + batch + "- " + layer, 0)
         ret,th_img = cv2.threshold(img,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         binary_mask_lst.append(th_img)
         
-    # Take union over batch masks # TODO change to cv2.add
+    # Take union over batch masks # TODO change to cv2.add + make compatible with arbitrary length binary_mask_lst
     mask = (binary_mask_lst[0] == 255) | (binary_mask_lst[1] == 255) | (binary_mask_lst[2] == 255) #\
             #| (binary_mask_lst[3] == 255)
     mask = (mask * 255).astype("uint8")
@@ -67,13 +88,24 @@ def create_foreground_masks(RAW_TIFF_PATH, batch, layers, BATCH_MSK_PATH):
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, noise_kernel)
     close_kernel = np.ones((3,3), np.uint8)
     mask_closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
-    
-    # plot_big2(mask, mask_closed, batch)
+
+    # Save result
     cv2.imwrite(BATCH_MSK_PATH + batch + "batchmsk.tif", mask_closed)
 
 def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
                      blade_ksize, lap_ksize, thin_th, fat_th,
                      msk_col_dct, path=False):
+    """Function to segment batches into substructure classes
+    Input:
+            batch: current batch filename to segment
+            RAW_TIFF_PATH: directory for compton scatter image
+            BATCH_MSK_PATH: directory for batch plant foreground mask
+            blade_ksize, lap_kszie, thin_th, fat_th: segmentation parameters
+            msk_col_dct: dictionary containing the colors associated with the classes
+            path: default=False. If specified segmentation result is written to this directory
+    Output:
+        multi_msk: Segmentation result for batch as rgb image with colors corresponding to classes as in msk_col_dct
+    """
     
     img_fn = RAW_TIFF_PATH + batch + "- Image.tif"
     img = cv2.imread(img_fn, cv2.IMREAD_GRAYSCALE)
@@ -151,10 +183,6 @@ def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH,
         cv2.imwrite(path + batch + "multimsk.tif", multi_msk)
     
     return multi_msk
-
-
-# TODO this should be two or three separate functions
-# TODO rewrite comments
 
 def crop_plant(polygon, batch_img, fg_msk, bg_color = None):
     """Uses manually drawn polygons to divide batch images/masks into individual plant images/masks
@@ -309,7 +337,7 @@ def create_rand_substructure(PLANT_MSK_PATH, PLANT_RANDMSK_PATH, N_pixels):
         
         cv2.imwrite(PLANT_RANDMSK_PATH + str(N_pixels) + "/" + fn,  dil_msk)
         
-# Helper functions
+### Helper functions
 def contouring(img, area_th = 0.0001):
     """Use open-cv contouring to get contours of a binary image.
     
@@ -343,6 +371,14 @@ def contour2mask(img, contours):
     return binary_mask
 	
 def poly_crop(img, polygon, col = 255, bg = 0):
+    """use polygon to black out everyting except what is inside of polygon
+    input: 
+        img: a numpy array with an image to crop
+        polygon: a cv2 polygon (numpy array) to crop with
+        col: default 255, specify as (255,255,255) if rgb image is used
+        bg: default 0, specify otherwise if a different background color should be used
+    Returns:
+        res: picture with background outside of polygon set to bg"""
     stencil = np.zeros(img.shape).astype(img.dtype)
     cv2.fillPoly(stencil, polygon, col)
     res = np.where(stencil == 255, img, bg)
