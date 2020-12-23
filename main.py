@@ -38,9 +38,11 @@ PLANT_ZIMG_PATH = "data/plant_Zimg/"
 PLANT_ZIMG_NOISE_PATH = "data/plant_Zimg_noise/"
 PLANT_KIMG_PATH = "data/plant_Kimg/"
 
-DF_SAVE_PATH = "data/Noccaea_CQsA500.csv"
 POLY_DCT_PATH = "data/polygon_dict.pck"
 LEAFPOLY_DCT_PATH = "data/leaf_polygon_dct.pck"
+
+# Download data
+assert os.path.exists(RAW_TIFF_PATH), "Request data from lucas.vanderzee@wur.nl"
 
 # Get list of all filenames of scans (batches)
 batchname_lst = utils.get_batch_names(RAW_TIFF_PATH)
@@ -73,10 +75,10 @@ if os.path.exists(POLY_DCT_PATH):
 else:
     polygon_dct = {batchname:{} for batchname in batchname_lst}
 
-
+# draw plant polygons
 for batch in batchname_lst:
     df = segmentation.divide_plants(RAW_TIFF_PATH, batch, polygon_dct, POLY_DCT_PATH, 
-                                    df, DF_SAVE_PATH)
+                                    df, "data/Noccaea_nometrics.csv")
 
 # %% Create batch foreground masks
 if not os.path.exists(BATCH_MSK_PATH):
@@ -89,6 +91,8 @@ for batch in batchname_lst:
 # %% Create batch segmentation masks
 
 blade_ksize, lap_ksize, thin_th, fat_th = 15, 7, -2500, 0
+if not os.path.exists(BATCH_MULTIMSK_PATH):
+    os.mkdir(BATCH_MULTIMSK_PATH)
 
 for batch in batchname_lst:
     multimsk = segmentation.create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH, 
@@ -98,7 +102,7 @@ for batch in batchname_lst:
 # %% Create individual images per plant
 metals = ["Zn"]
 with open(POLY_DCT_PATH, "rb") as f:
-        polygon_dct = pickle.load(f)
+    polygon_dct = pickle.load(f)
 
 # Create output dictionaries
 paths = [PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH] + \
@@ -111,16 +115,16 @@ for batch in batchname_lst:
     
     # Open batch masks and images
     msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
-    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
+    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) 
     assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
     
     img_path = RAW_TIFF_PATH + batch + "- Image.tif"
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
     
-    multimsk_path = multimsk + batch + "multimsk.tif"
+    multimsk_path = BATCH_MULTIMSK_PATH + batch + "multimsk.tif"
     multimsk = cv2.imread(multimsk_path) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
+    assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
             
     # Crop individual plants from batch images
     for acc_rep, polygon in polygon_dct[batch].items():
@@ -150,6 +154,7 @@ for batch in batchname_lst:
             np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metal_img, fmt='%f', delimiter=",")
 
 # %% Create masks with x percentage of pixels replaced by a random class
+plant_fns = os.listdir(PLANT_MSK_PATH)
 for percentage in [90]: 
     segmentation.create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage)
 
@@ -161,7 +166,7 @@ for N_pixels in [1,2,5]:
 # %% Get stats from image
 # TODO: profile time usage and improve speed
 
-metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+metals = ["metal_Zn", "metal_K", "metal_Ni", "metal_Ca"]
 substructures = obj_class_lst[1:] + ["plant", "rand_1", "rand_2", "rand_5"]
 df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
 
@@ -286,151 +291,151 @@ for i in range(len(para_df)):
                 x,y = np.where(layer_msk > 0 )
                 xy_lst = list(zip(x,y))
                 randpix_df.loc[(randpix_df.fn == fn) & (randpix_df.xy.isin(xy_lst)),"pred_class_"+str(i)] = class_dct_rev[substrct]             
-
+randpix_df.to_csv("data/rand_pred_pixel_sens.csv")
 # %%
 ### Below all code is written for leaf age segmentation. This part is not described in the article
 # %% Manually annotate leaf age
 
 # Load dictionary of already segmented leaves
-if path.exists(LEAFPOLY_DCT_PATH):
-    input("are you sure you want to extend/overwrite current leaf polygon dictionary? (any key/Ctrl-C to abort")
-    with open(LEAFPOLY_DCT_PATH, "rb") as f:
-        leaf_polygon_dct = pickle.load(f)
-else:
-    leaf_polygon_dct = {}
+# if path.exists(LEAFPOLY_DCT_PATH):
+#     input("are you sure you want to extend/overwrite current leaf polygon dictionary? (any key/Ctrl-C to abort")
+#     with open(LEAFPOLY_DCT_PATH, "rb") as f:
+#         leaf_polygon_dct = pickle.load(f)
+# else:
+#     leaf_polygon_dct = {}
 
-# Randomize order of annotation
-rand_plant_fns = plant_fns.copy()
-random.shuffle(rand_plant_fns)
+# # Randomize order of annotation
+# rand_plant_fns = plant_fns.copy()
+# random.shuffle(rand_plant_fns)
 
-# Manually annotate leaf age
-for fn in rand_plant_fns:
-    print("working on: ", fn)
+# # Manually annotate leaf age
+# for fn in rand_plant_fns:
+#     print("working on: ", fn)
     
-    # Set up dictionary or skip if plant already annotated
-    if fn not in leaf_polygon_dct:
-        leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
-        leaf_polygon_dct[fn]["status"] = "pending"
-    elif leaf_polygon_dct[fn]["status"] == "pending":
-        for k,v in leaf_polygon_dct[fn].items():
-            print(k, ": ", len(v))
-    elif leaf_polygon_dct[fn]["status"] == "done":
-        print("already annotated")
-        continue
-    else:
-        raise Exception('Non accepted status encountered')
+#     # Set up dictionary or skip if plant already annotated
+#     if fn not in leaf_polygon_dct:
+#         leaf_polygon_dct[fn] = {leaftype:[] for leaftype in leaf_types}
+#         leaf_polygon_dct[fn]["status"] = "pending"
+#     elif leaf_polygon_dct[fn]["status"] == "pending":
+#         for k,v in leaf_polygon_dct[fn].items():
+#             print(k, ": ", len(v))
+#     elif leaf_polygon_dct[fn]["status"] == "done":
+#         print("already annotated")
+#         continue
+#     else:
+#         raise Exception('Non accepted status encountered')
         
-    # Load plant image and mask        
-    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+#     # Load plant image and mask        
+#     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+#     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
     
-    multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
-    assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
+#     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn) # Load as RGB
+#     assert isinstance(multimsk, np.ndarray), "{} doesn't exsit".format(PLANT_MULTIMSK_PATH + fn)
     
-    # Create blade mask from margin, vein and tissue masks
-    blade_substructs = ["margin", "vein", "tissue"]
-    blade_msks = [stats.get_layer(multimsk, msk_col_dct, substrct) for substrct in blade_substructs]
-    blade_msk = np.array(blade_msks).sum(axis=0) > 0
+#     # Create blade mask from margin, vein and tissue masks
+#     blade_substructs = ["margin", "vein", "tissue"]
+#     blade_msks = [stats.get_layer(multimsk, msk_col_dct, substrct) for substrct in blade_substructs]
+#     blade_msk = np.array(blade_msks).sum(axis=0) > 0
     
-    # Review blade mask and potentially redraw leaf contours
-    contours = segmentation.contouring(blade_msk.astype("uint8"))
-    accepted_contours = []
-    for cnt in contours:
-        cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
-        viz.plot_big(cnt_img)
-        answer = input("Accept contour? (any key/n/skip): ")
-        if answer == "skip":
-            continue
-        elif answer == "n":
-            status = "pending"
-            while status != "done":
-                # Draw polygon
-                pdrawer = draw.PolygonDrawer("draw polygon", cnt_img)
-                polygon = pdrawer.run()
+#     # Review blade mask and potentially redraw leaf contours
+#     contours = segmentation.contouring(blade_msk.astype("uint8"))
+#     accepted_contours = []
+#     for cnt in contours:
+#         cnt_img = cv2.drawContours(img.copy(), [cnt], 0, (0,255,0), 1)
+#         viz.plot_big(cnt_img)
+#         answer = input("Accept contour? (any key/n/skip): ")
+#         if answer == "skip":
+#             continue
+#         elif answer == "n":
+#             status = "pending"
+#             while status != "done":
+#                 # Draw polygon
+#                 pdrawer = draw.PolygonDrawer("draw polygon", cnt_img)
+#                 polygon = pdrawer.run()
                 
-                # Crop blade mask with hand-drawn polygon
-                binary_mask = np.zeros(np.shape(img), dtype=np.uint8)
-                polygon_msk = cv2.drawContours(binary_mask, [polygon], 0, (255,255,255), -1) #Check if indeed this draws a mask
-                manual_blade_msk = (polygon_msk > 0) & (blade_msk > 0 )
-                bl_msk_cnt = segmentation.contouring(manual_blade_msk.astype("uint8"))[0]
-                new_cnt_img = cv2.drawContours(img.copy(), [bl_msk_cnt], 0, (0,255,0), 1)
-                viz.plot_big(new_cnt_img)
+#                 # Crop blade mask with hand-drawn polygon
+#                 binary_mask = np.zeros(np.shape(img), dtype=np.uint8)
+#                 polygon_msk = cv2.drawContours(binary_mask, [polygon], 0, (255,255,255), -1) #Check if indeed this draws a mask
+#                 manual_blade_msk = (polygon_msk > 0) & (blade_msk > 0 )
+#                 bl_msk_cnt = segmentation.contouring(manual_blade_msk.astype("uint8"))[0]
+#                 new_cnt_img = cv2.drawContours(img.copy(), [bl_msk_cnt], 0, (0,255,0), 1)
+#                 viz.plot_big(new_cnt_img)
                 
-                # Accept new mask and annotate leaf
-                if not input("accept new polygon? (y/n)") == "n":
-                    answer = input("leaf type? ")
-                    assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
-                    assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
-                    leaf_polygon_dct[fn][answer].append(bl_msk_cnt)
-                    with open(LEAFPOLY_DCT_PATH, "wb") as f:
-                        pickle.dump(leaf_polygon_dct, f)
-                status = input("done? ")
-        else:
-            # Annotate leaf
-            answer = input("leaf type? ")
-            assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
-            assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
-            leaf_polygon_dct[fn][answer].append(cnt)
-            with open(LEAFPOLY_DCT_PATH, "wb") as f:
-                pickle.dump(leaf_polygon_dct, f)
-    leaf_polygon_dct[fn]["status"] = "done"
-    with open(LEAFPOLY_DCT_PATH, "wb") as f:
-        pickle.dump(leaf_polygon_dct, f)
+#                 # Accept new mask and annotate leaf
+#                 if not input("accept new polygon? (y/n)") == "n":
+#                     answer = input("leaf type? ")
+#                     assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
+#                     assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
+#                     leaf_polygon_dct[fn][answer].append(bl_msk_cnt)
+#                     with open(LEAFPOLY_DCT_PATH, "wb") as f:
+#                         pickle.dump(leaf_polygon_dct, f)
+#                 status = input("done? ")
+#         else:
+#             # Annotate leaf
+#             answer = input("leaf type? ")
+#             assert answer in leaf_types, "{} is not an accepted leaf type".format(answer)
+#             assert len(leaf_polygon_dct[fn][answer]) <= 2, "Trying to save >2 polygons for fn: {}, leaf type: {}".format(fn, answer)
+#             leaf_polygon_dct[fn][answer].append(cnt)
+#             with open(LEAFPOLY_DCT_PATH, "wb") as f:
+#                 pickle.dump(leaf_polygon_dct, f)
+#     leaf_polygon_dct[fn]["status"] = "done"
+#     with open(LEAFPOLY_DCT_PATH, "wb") as f:
+#         pickle.dump(leaf_polygon_dct, f)
         
-# %% Create leaf age multimask
-# TODO write as function, move to segmentation.py
+# # %% Create leaf age multimask
+# # TODO write as function, move to segmentation.py
 
-with open(LEAFPOLY_DCT_PATH, "rb") as f:
-    leaf_polygon_dct = pickle.load(f)
+# with open(LEAFPOLY_DCT_PATH, "rb") as f:
+#     leaf_polygon_dct = pickle.load(f)
 
-for fn in leaf_polygon_dct.keys():
-    # Load leaf image and create empty leaf_multimsk
-    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
-    leaf_multimsk = np.zeros((img.shape[0], img.shape[1], 3))
+# for fn in leaf_polygon_dct.keys():
+#     # Load leaf image and create empty leaf_multimsk
+#     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+#     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+#     leaf_multimsk = np.zeros((img.shape[0], img.shape[1], 3))
 
-    # Iterate over leaf classes in random order and assign color to empty image
-    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
-        for polygon in leaf_polygon_dct[fn][leaf_class]:
-            cv2.drawContours(leaf_multimsk, [polygon], 0, leafmsk_col_dct[leaf_class], -1)
+#     # Iterate over leaf classes in random order and assign color to empty image
+#     for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+#         for polygon in leaf_polygon_dct[fn][leaf_class]:
+#             cv2.drawContours(leaf_multimsk, [polygon], 0, leafmsk_col_dct[leaf_class], -1)
     
-    cv2.imwrite(LEAF_MULTIMSK_PATH + fn, leaf_multimsk.astype("uint8"))
+#     cv2.imwrite(LEAF_MULTIMSK_PATH + fn, leaf_multimsk.astype("uint8"))
 
 
-# %% Output annotated leaf examples
-LEAF_EXAMPLE_PATH = "data/output/leaf_msk_examples/" 
+# # %% Output annotated leaf examples
+# LEAF_EXAMPLE_PATH = "data/output/leaf_msk_examples/" 
 
-with open(LEAFPOLY_DCT_PATH, "rb") as f:
-        leaf_polygon_dct = pickle.load(f)
+# with open(LEAFPOLY_DCT_PATH, "rb") as f:
+#         leaf_polygon_dct = pickle.load(f)
         
-if not os.path.exists(LEAF_EXAMPLE_PATH):
-    os.mkdir(LEAF_EXAMPLE_PATH)
+# if not os.path.exists(LEAF_EXAMPLE_PATH):
+#     os.mkdir(LEAF_EXAMPLE_PATH)
         
-# For img, polygon, find max. coord (bottom-right) print name on picture
-for fn in leaf_polygon_dct.keys():
-    # Load leaf image and create empty leaf_multimsk
-    img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
+# # For img, polygon, find max. coord (bottom-right) print name on picture
+# for fn in leaf_polygon_dct.keys():
+#     # Load leaf image and create empty leaf_multimsk
+#     img = cv2.imread(PLANT_IMG_PATH + fn, cv2.IMREAD_GRAYSCALE)
+#     assert isinstance(img, np.ndarray), "{} doesn't exsit".format(fn)
     
-    canvas = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
-        for polygon in leaf_polygon_dct[fn][leaf_class]:
-            cv2.drawContours(canvas, [polygon], 0, leafmsk_col_dct[leaf_class], 3)
+#     canvas = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+#     for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+#         for polygon in leaf_polygon_dct[fn][leaf_class]:
+#             cv2.drawContours(canvas, [polygon], 0, leafmsk_col_dct[leaf_class], 3)
             
-    for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
-        for polygon in leaf_polygon_dct[fn][leaf_class]:
-            max_x = polygon[:,:,0].min()
-            max_y = polygon[:,:,1].min()
-            cv2.putText(canvas, leaf_class, (max_x,max_y), cv2.FONT_HERSHEY_SIMPLEX,
-                        .5,(255,255,255), 2)
+#     for leaf_class in random.sample(leaf_types, (len(leaf_types))) : # Randomizing because some leaf masks overlap, leaf class coming out on top is random
+#         for polygon in leaf_polygon_dct[fn][leaf_class]:
+#             max_x = polygon[:,:,0].min()
+#             max_y = polygon[:,:,1].min()
+#             cv2.putText(canvas, leaf_class, (max_x,max_y), cv2.FONT_HERSHEY_SIMPLEX,
+#                         .5,(255,255,255), 2)
     
-    cv2.imwrite(LEAF_EXAMPLE_PATH + fn, canvas)
+#     cv2.imwrite(LEAF_EXAMPLE_PATH + fn, canvas)
     
     
-# Store these in a separate folder, treat like substructures and calculate CQ per substructure
+# # Store these in a separate folder, treat like substructures and calculate CQ per substructure
 
-# Finally, we want some automated way for recognizing these leaves. We could do this two ways:
-    #a. Create a df (per leaf) with a set of numerical features that defines the leaf type / plant and train a NN or SVM on that
-        # Features; leaf_size / plant_size, number of leaves on plant, check some described papers
-    #b. Train a conv. NN on the leaf images
+# # Finally, we want some automated way for recognizing these leaves. We could do this two ways:
+#     #a. Create a df (per leaf) with a set of numerical features that defines the leaf type / plant and train a NN or SVM on that
+#         # Features; leaf_size / plant_size, number of leaves on plant, check some described papers
+#     #b. Train a conv. NN on the leaf images
 

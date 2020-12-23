@@ -72,7 +72,7 @@ if not os.path.exists("data/output/article_images/"):
     os.makedirs("data/output/article_images/")
     
 # %% Output batch scan examples
-metals = ["Zn", "K", "Ca", "Ni"]
+metals = ["Zn"] #, "K", "Ca", "Ni"]
 fn = batchname_lst[0]
 compton_fn = fn + "- " + "Image" + ".tif"
 
@@ -101,32 +101,29 @@ df = pd.read_csv("data/Noccaea_CQs.csv")
 sns.set_style("ticks")
 palette = itertools.cycle(sns.color_palette())
 
-metals = ["Zn","Ca","K","Ni"]
+metals = ["Zn"] #,"Ca","K","Ni"]
 
 # Correlate ICP-AES ratio to plant size for all metals
 for metal in metals:
-    if metal == "Zn":
-        abs_metal = "metal_Z_plant_abs"
-    else:
-        abs_metal = "_".join(("metal", metal, "plant", "abs"))
+    abs_metal = "_".join(("metal", metal, "plant", "abs"))
     
     ratio = df[metal] / df[abs_metal]
-    sns.scatterplot(x=df["metal_Z_plant_n_pix"], y = ratio, color=next(palette))
+    sns.scatterplot(x=df["metal_Zn_plant_n_pix"], y = ratio, color=next(palette))
     plt.ylabel("ICP-AES : \u03BCXRF ratio")
     plt.xlabel("Plant Size [pixels]")
     plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
     plt.show()
 
 # Correlate mean zinc concentration to the ICP:muXRF ratio
-# sns.scatterplot(x="metal_Z_plant_meanC", y = "ICP:muXRF_ratio", data=df)
+# sns.scatterplot(x="metal_Zn_plant_meanC", y = "ICP:muXRF_ratio", data=df)
 # plt.ylabel("ICP-AES : muXRF ratio")
 # plt.xlabel("mean Zinc concentration")
 # plt.show()
 
 # Correlate ICP-AES zinc concentration to muXRF zinc concentration
-# sns.scatterplot(x="Zn", y = "metal_Z_plant_abs", data=df)
-# dfcor = df.loc[(df.Zn.notna()) & (df.metal_Z_plant_abs.notna()),:]
-# r,p = pearsonr(dfcor.Zn, dfcor.metal_Z_plant_abs)
+# sns.scatterplot(x="Zn", y = "metal_Zn_plant_abs", data=df)
+# dfcor = df.loc[(df.Zn.notna()) & (df.metal_Zn_plant_abs.notna()),:]
+# r,p = pearsonr(dfcor.Zn, dfcor.metal_Zn_plant_abs)
 # print(r,p)
 # plt.ylabel("\u03BCXRF absolute zinc [-]")
 # plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
@@ -142,7 +139,7 @@ for metal in metals:
 # plt.show()
 
 # Show images for outliers
-# metal_name = "Z"
+# metal_name = "Zn"
 # METAL_PATH = "data/plant_" + metal_name + "img/"
 
 # for fn in outlier_abs_fn:
@@ -164,17 +161,17 @@ df = pd.read_csv("data/Noccaea_CQs.csv", index_col=0)
 df = df.loc[df.batch.notna(),:]
 random_accessions = random.sample(list(df["Accession #"].unique()), 15)
 random_accessions.sort()
-plt_df = df.loc[df["Accession #"].isin(random_accessions),["Accession #", "metal_Z_plant_meanC"]]
+plt_df = df.loc[df["Accession #"].isin(random_accessions),["Accession #", "metal_Zn_plant_meanC"]]
 
 
 plt.figure(figsize=(7,5))
-sns.catplot(x="Accession #", y="metal_Z_plant_meanC", data=plt_df, jitter=False, color='black')
+sns.catplot(x="Accession #", y="metal_Zn_plant_meanC", data=plt_df, jitter=False, color='black')
 plt.ylabel("mean zinc concentration [-]")
 # plt.savefig("data/output/article_images/mean_zinc_concentration.png", dpi=300)
 
 # %% Histograms of metals
 sns.reset_orig()
-metals = ["Zn","Ca","K","Ni"]
+metals = ["Zn"] #,"Ca","K","Ni"]
 minlst = []
 maxlst = []
 meanlst = []
@@ -190,9 +187,9 @@ for metal in metals:
         plt.title(metal + " " + batch)
         plt.show()
     
-# %% Correlate metals
+# %% Correlate metals and show metal correlations
 
-metals = ["Z","Ca","K","Ni"]
+metals = ["Zn"] #,"Ca","K","Ni"]
 met_tup = itertools.combinations(metals, 2)
 met_str = [" vs ".join(tup) for tup in met_tup]
 metal_cor_dct = {"plant_fn":[], "accession #":[], "pairwise correlation":[], "r":[], "p":[]}
@@ -200,7 +197,7 @@ metal_cor_dct = {"plant_fn":[], "accession #":[], "pairwise correlation":[], "r"
 for fn in plant_fns:
     acc_nr = fn.split("_")[1]
     
-    znimg = np.genfromtxt( "data/plant_Zimg/" + fn.split(".")[0] + ".txt", 
+    znimg = np.genfromtxt( "data/plant_Znimg/" + fn.split(".")[0] + ".txt", 
                           delimiter=",")
     kimg = np.genfromtxt( "data/plant_Kimg/" + fn.split(".")[0] + ".txt", 
                           delimiter=",")
@@ -211,7 +208,7 @@ for fn in plant_fns:
     
     # Get pixel-values under plant mask
     msk = cv2.imread(PLANT_MSK_PATH + fn,  cv2.IMREAD_GRAYSCALE) // 255
-    pixval_dct = {"Z":znimg[msk == 1], "Ca":caimg[msk == 1], 
+    pixval_dct = {"Zn":znimg[msk == 1], "Ca":caimg[msk == 1], 
                   "K":kimg[msk == 1], "Ni":niimg[msk == 1]}    
 
     # Calculate correlations        
@@ -224,7 +221,6 @@ for fn in plant_fns:
         metal_cor_dct["r"].append(r)
         metal_cor_dct["p"].append(p)
 
-# %% Show metal correlations
 metal_cor_df = pd.DataFrame(metal_cor_dct)
 metal_cor_df["accession #"] = metal_cor_df["accession #"].astype(int)
 metal_cor_df.sort_values(by="accession #", axis=0, inplace=True)
@@ -242,10 +238,9 @@ plot_df = metal_cor_df.loc[metal_cor_df["accession #"].isin(accs),:]
 sns.catplot(x="accession #", y="r", data=plot_df, hue="pairwise correlation", jitter=False, linewidth=.5, s=5)
 plt.legend("")
 plt.ylim(-1,1)
-# fig = plt.figure(figsize=(10,10))
 plt.show()
+
 for i, pair in enumerate(met_str):
-    # ax = fig.add_subplot(2,3,i+1)
     print(pair)
     plt.figure(figsize=(20,8))
     sns.stripplot(x="accession #", y="r", 
@@ -257,10 +252,10 @@ for i, pair in enumerate(met_str):
     plt.show()
 
 # %% Get normalized mean concentration of substructures
-sns.set_style("ticks")
+
 mean_subC_dct = {substrct:[] for substrct in obj_class_lst[1:]}
 mean_subC_dct.update({"metal":[], "plant_fn":[]})
-metals = ["Z","Ca","K","Ni"]
+metals = ["Zn","Ca","K","Ni"]
 for fn in plant_fns:
     multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
     msk = cv2.imread(PLANT_MSK_PATH + fn, cv2.IMREAD_GRAYSCALE) // 255
@@ -289,13 +284,13 @@ mean_subC_df.to_csv("data/normalized_mean_subs_conc.csv")
 
 
 # %% Check normalized mean concentrations for significant differences
-from statsmodels.graphics.gofplots import qqplot
-from scipy.stats import shapiro, kruskal, probplot
+
+from scipy.stats import shapiro, kruskal
 import scikit_posthocs as sp
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 
-metals = ["Z","Ca","K","Ni"]
+metals = ["Zn","Ca","K","Ni"]
 mean_subC_df = pd.read_csv("data/normalized_mean_subs_conc.csv", index_col=0, header=0)
 
 # Plot mean normalized concentrations
@@ -377,11 +372,10 @@ for metal in metals:
 df = pd.read_csv("data/Noccaea_CQs.csv")
 df["accession_str"] = df['Accession #'].astype(str)
 
-metal = "metal_Z"
+metal = "metal_Zn"
 metric = "abs"
 npix = "_".join((metal, "plant", "n_pix"))
 
-sns.set_style("ticks")
 
 subs_abs = [ "_".join((metal, substr, metric)) for substr in obj_class_lst[1:] ]
 plt.figure(figsize=(10,10))
@@ -415,7 +409,7 @@ plt.show()
 df = pd.read_csv("data/Noccaea_CQs.csv")
 df = df.loc[df.batch.notna(),:]
 
-metals = ['Z', 'K', 'Ni', 'Ca']
+metals = ['Zn', 'K', 'Ni', 'Ca']
 
 dct = {"metal":[], "substructure":[], 
        "plant size correlation":[], 
@@ -429,7 +423,7 @@ for i, metal in enumerate(metals):
     # plt.figure(figsize=(10,10))
     print("Plant size correlation")
     for i,subs in enumerate(subs_CQ):
-        r,p = pearsonr(df["metal_Z_plant_n_pix"], df[subs])
+        r,p = pearsonr(df["metal_Zn_plant_n_pix"], df[subs])
         print(subs, " r = ", r, " p = ", p)
         dct["metal"].append(metal)
         dct["substructure"].append(subs)
@@ -448,7 +442,7 @@ df = pd.DataFrame(dct)
 df.to_csv("data/output/article_images/plantsize_meanC_CQ_cors.csv")
 
 # Scatter mean zinc concentration to plant size
-# plt.scatter(df["metal_Z_plant_meanC"], df["metal_Z_plant_n_pix"])
+# plt.scatter(df["metal_Zn_plant_meanC"], df["metal_Zn_plant_n_pix"])
 # plt.title('scatter of mean zinc versus plant size')
 
 
@@ -456,14 +450,14 @@ df.to_csv("data/output/article_images/plantsize_meanC_CQ_cors.csv")
 df = pd.read_csv("data/Noccaea_CQs.csv")
 df["accession_str"] = df['Accession #'].astype(str)
 df_noNAN = df.loc[df['batch'].notna(),:]
-metals = ['Z', 'K', 'Ni', 'Ca']
+metals = ['Zn', 'K', 'Ni', 'Ca']
 
 
 def return_pval(x,y):
     return pearsonr(x, y)[1]
 
 substructures = obj_class_lst[1:]
-metal = "metal_Z"
+metal = "metal_Zn"
 
 fig, axes = plt.subplots(2,2,figsize=(10,10))
 axes = axes.ravel()
@@ -473,10 +467,7 @@ for i, metal in enumerate(metals):
     CQ_pair_corrs.columns = substructures
     CQ_pair_corrs.index = substructures
     sns.heatmap(CQ_pair_corrs, annot=True, cbar=False, cmap="viridis", ax=axes[i])
-    if metal == "Z":
-        axes[i].set_title("Zn")
-    else:
-        axes[i].set_title(metal)
+    axes[i].set_title(metal)
 plt.savefig("data/output/article_images/CQ_paircorr.png", dpi=300)
 plt.show()
 
@@ -490,7 +481,7 @@ df = df.loc[df.batch.notna(),:]
 
 
 substructures = obj_class_lst[1:]
-metal = "metal_Z"
+metal = "metal_Zn"
 plt.figure(figsize=(10,10))
 print("Correlation of CQ to relative structure area")
 for i, substrct in enumerate(substructures):
@@ -528,7 +519,7 @@ fig, axes = plt.subplots(2,2, figsize=(20,10))
 axes = axes.ravel()
 
 # Show raw data supporting H2 for plant size, petiole CQ, rand CQ
-toshow = ["metal_Z_plant_n_pix", "metal_Z_petiole_CQ", "metal_Z_rand_2_CQ"]
+toshow = ["metal_Zn_plant_n_pix", "metal_Zn_petiole_CQ", "metal_Zn_rand_2_CQ"]
 xlabs = ["plant size (pixels)", "petiole Zn CQ", "random substructure Zn CQ"]
 acc_strs = [str(x) for x in selected_accessions]
 for i, colname in enumerate(toshow):
@@ -540,7 +531,7 @@ for i, colname in enumerate(toshow):
 
 # Plot H2 for plant size, mean Zn, Zn sub CQs, random substructure CQ 
 substructures = obj_class_lst[1:]
-metals = ['Z', 'K', 'Ni', 'Ca']
+metals = ['Zn', 'K', 'Ni', 'Ca']
 metrics = ["plant_n_pix", "plant_meanC"] + substructures + ["rand_2"]
 i_names = ["plant size", "mean [Zn]", "petiole Zn CQ", 
            "margin Zn CQ", "vein Zn CQ", "tissue Zn CQ", 
@@ -585,10 +576,12 @@ plt.legend(bbox_to_anchor=(1.32, 1),loc = 'upper right')
 plt.show()
 
 # Plot H2 for noised images
+assert os.path.exists("data/H2_noised_table.csv", "H2_noised_table.csv not found, did adapt the main.R script for noise?")
+
 H2_noised = pd.read_csv("data/H2_noised_table.csv", index_col=0)
 indexnames = []
 sub_names = []
-metal = "Z"
+metal = "Zn"
 noise_levels = ["10", "20", "50", "75", "90"]
 noise_names = [10,20,50,75,90] * 4
 noise_names.sort()
@@ -620,7 +613,7 @@ def return_pval(x,y):
     return pearsonr(x, y)[1]
 
 substructures = obj_class_lst[1:]
-metals = ["metal_Z", "metal_K", "metal_Ni", "metal_Ca"]
+metals = ["metal_Zn", "metal_K", "metal_Ni", "metal_Ca"]
 labs = ["Zn CQ", "K CQ", "Ni CQ", "Ca CQ"]
 plt.figure(figsize=(10,10))
 for i, substr in enumerate(substructures):
@@ -633,12 +626,7 @@ for i, substr in enumerate(substructures):
                 xticklabels=labs, yticklabels=labs)
     plt.title(substr)
 plt.savefig("data/output/article_images/CQ_metalpaircorr.png", dpi=300)
-plt.show()    
-
-
-    # CQ_pair_cor_pval = df_noNAN[pairplt_vars].corr(method=return_pval)
-    # g = sns.pairplot(df_noNAN[pairplt_vars]) # , 
-    # plt.show()
+plt.show()
 
 # %% Visualize confusion matrix
 randpix_df = pd.read_csv("data/rand_pred_pixel.csv", index_col=0, header=0)
