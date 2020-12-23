@@ -5,15 +5,13 @@ Created on Wed Sep 30 16:43:01 2020
 @author: lucas
 """
 
-# TODO rewrite code on generating random substructues and other random stuff (moved it from main to here)
-
-
-import numpy as np
 import itertools
-import cv2
 import pickle
 import os
 import random
+
+import numpy as np
+import cv2
 
 from scripts import viz, draw
 
@@ -212,97 +210,33 @@ def crop_plant(polygon, batch_img, fg_msk, bg_color = None):
         fg_msk_rgb = cv2.cvtColor(cropped_fg_msk * 255, cv2.COLOR_GRAY2RGB)
         return np.where(fg_msk_rgb == (255,255,255), cropped_img, bg_color)   
     
-
-def make_individual_plant_images(POLYGON_DCT_PATH, batch, RAW_TIFF_PATH, 
-                                 BATCH_MSK_PATH, multimsk, RAW_TXT_PATH, 
-                                 PLANT_IMG_PATH, PLANT_MSK_PATH, PLANT_MULTIMSK_PATH,
-                                 metal, msk_col_dct, create_masks = False):
-    # Load the polygon coordinates
-    with open(POLYGON_DCT_PATH, "rb") as f:
-        polygon_dct = pickle.load(f)
-        
-    img_path = RAW_TIFF_PATH + batch + "- Image.tif"
-    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    assert isinstance(img, np.ndarray), "{} doesn't exsit".format(img_path)
     
-    msk_path = BATCH_MSK_PATH + batch + "batchmsk.tif"
-    msk = cv2.imread(msk_path,  cv2.IMREAD_GRAYSCALE) // 255 # load image as binary
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(msk_path)
-    
-    if type(multimsk) == str:
-        multimsk_path = multimsk + batch + "multimsk.tif"
-        multimsk = cv2.imread(multimsk_path) # Load as RGB
-    assert isinstance(msk, np.ndarray), "{} doesn't exsit".format(multimsk_path)
-        
-    # Zimg_path = RAW_TXT_PATH + batch + "- Zn.txt"
-    # Zimg = np.loadtxt(Zimg_path, delimiter=",", skiprows=1)
-    #TODO harmonize folder names, change Zimg to Znimg
-    if metal == "Z":
-        metal_raw_path = "Zn"
-    else:
-        metal_raw_path = metal
-        
-    metalimg_path = RAW_TXT_PATH + batch + "- " + metal_raw_path + ".txt"    
-    metalimg = np.loadtxt(metalimg_path, delimiter=",", skiprows=1)
-    
-    # Dilate mask to include a strip of background around the plant Zimage
-    kernel = np.ones((5,5),np.uint8)
-    dil_msk = cv2.dilate(msk, kernel, iterations = 1)
-    
-    # Loop over polygon dictionaries
-    for acc_rep, polygon in polygon_dct[batch].items():
-        # Create mask/image name
-        accession, replicate = acc_rep.split("_")
-        fn = "_".join([batch, accession, replicate])
-        
-        # Crop img, Zimg, msk and multimsk using polygon
-        blacked_img = poly_crop(img, polygon)
-        blacked_metalimg = poly_crop(metalimg, polygon)
-        blacked_msk = poly_crop(msk, polygon)
-        bged_multimsk = poly_crop(multimsk, polygon, 
-                                             col = (255,255,255), bg = msk_col_dct['background'])
-            
-        # Crop image to bounding box around polygon
-        x,y,w,h = cv2.boundingRect(blacked_img)
-        plant_dil_msk = dil_msk[y:y+h,x:x+w]
-        
-        if create_masks:
-            plant_msk = blacked_msk[y:y+h,x:x+w] * 255
-            
-            dirty_plant_img = blacked_img[y:y+h,x:x+w]
-            dirty_plant_multimsk = bged_multimsk[y:y+h,x:x+w]
-            
-            plant_img = np.where(plant_dil_msk == 1, dirty_plant_img, 0)
-            plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
-            plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
-        if create_masks == "multi":
-            plant_dil_mskRGB = cv2.cvtColor(plant_dil_msk * 255, cv2.COLOR_GRAY2RGB)
-            plant_multimsk = np.where(plant_dil_mskRGB == (255,255,255), dirty_plant_multimsk, msk_col_dct['background'])
-            # cv2.imwrite(PLANT_IMG_PATH + fn + ".tif", plant_img)
-            # cv2.imwrite(PLANT_MSK_PATH + fn + ".tif", plant_msk)
-            # cv2.imwrite(PLANT_MULTIMSK_PATH + fn + ".tif", plant_multimsk)
-        
-        dirty_plant_metalimg = blacked_metalimg[y:y+h,x:x+w]
-        plant_metalimg = np.where(plant_dil_msk == 1, dirty_plant_metalimg, 0)
-        # np.savetxt("data/plant_" + metal + "img/" + fn + ".txt", plant_metalimg, fmt='%f', delimiter=",")
-
-
-
 def create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage):
-    # Check for folder existence and create
+    """function to create multimask where x% of classes has been replaced with a random class
+    Input:
+        PLANT_MULTIMSK_PATH: directory of existing plant substructure segmentation masks
+        PLANT_MSK_OATH: directory of existing plant foreground masks
+        plant_fns: filenames of all plants
+        msk_col_dct: dictionary mapping substructure classes to their associated colors
+        percentage: percentage of pixels within plant to replace with random pixel"""
+    
+    # Check for folder existence and create if it doesn't exist
     fraction = percentage / 100
     if not os.path.exists("data/plant_noisemsk/" + str(percentage)):
         os.makedirs("data/plant_noisemsk/" + str(percentage))
 
-    # Load masks, inject noise and write to disk
+    
     for fn in plant_fns:
+        # Load masks
         multimsk = cv2.imread(PLANT_MULTIMSK_PATH + fn)
         msk = cv2.imread(PLANT_MSK_PATH + fn, cv2.IMREAD_GRAYSCALE)
         noised_msk = multimsk.copy()
-            
+        
+        # Get pixels under plant foreground mask
         x,y = np.where(msk == 255)
         n_pixels = int(len(x) * fraction)
         
+        # Replace percentage of pixels with random class
         i_lst = random.sample(range(len(x)), n_pixels) 
         cols = np.array([col for k, col in msk_col_dct.items() if k != "background"])
         col_lst = cols[np.random.choice(len(cols), size = n_pixels)]
@@ -311,6 +245,13 @@ def create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_d
         cv2.imwrite("data/plant_noisemsk/" + str(percentage) + "/" + fn, noised_msk)
         
 def create_rand_substructure(PLANT_MSK_PATH, PLANT_RANDMSK_PATH, N_pixels):
+    """Function to create random patches of 30x30 that are used as a random non-biological substructure
+    Input:
+        PLANT_MSK_PATH: directory of plant foreground masks
+        PLANT_RANDMSK_PATH: directory to store random substructure masks in
+        N_pixels: number of 30x30 patches to create on the plant"""
+    
+    # Create output directory if it doesn't exist
     if not os.path.exists(PLANT_RANDMSK_PATH + str(N_pixels)):
         os.makedirs(PLANT_RANDMSK_PATH + str(N_pixels))
     for fn in os.listdir(PLANT_MSK_PATH):

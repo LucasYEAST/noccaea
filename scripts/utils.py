@@ -10,9 +10,6 @@ from networkx.algorithms.components.connected import connected_components
 import numpy as np
 
 
-
-
-
 def get_batch_names(path, layer="Image"):
     fn_lst = [x for x in os.listdir(path) if layer in x]
     fn_lst = [x.split("-")[0] for x in fn_lst]

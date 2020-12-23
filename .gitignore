@@ -1,3 +1,8 @@
 data/
 scripts/__pycache__/
 trash/
+.RData
+.Rhistory
+H2_script_lvdz.zip
+H2_script/
+__pycache__

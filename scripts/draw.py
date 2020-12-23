@@ -79,8 +79,9 @@ class PolygonDrawer(object):
         # return large_polygon.astype("int32")
         return np.array([self.points]).astype("int32")
 
-# TODO recursive structure doesn't work here because it returns both wrong try and right try
+
 def annotate(batch):
+    """Annotate the plant with the accession and replicate"""
     accession = input("tell me the accession ({})".format(batch))
     replicate = input("tell me the replicate ({})".format(batch))
     confirmation = input("accession: " + accession + " replicate: " + replicate + " confirm: y/n")
@@ -151,47 +152,3 @@ class _StackBarPlotter(_BarPlotter):
                                     errcolors,
                                     self.errwidth,
                                     self.capsize)
-
-# ============================================================================
-
-# if __name__ == "__main__":
-#     pdrawer = PolygonDrawer("Polygon", )
-#     image = pdrawer.run()
-#     cv2.imwrite("polygon.png", image)
-#     print("Polygon = %s" % pd.points)
-
-
-# %% 3. Manually draw individual plant masks
-# drawing = False	 # true if mouse is pressed 
-# mode = True		 # if True, draw rectangle. 
-# ix, iy = -1, -1
-
-# # Load plant data
-
-# # Create column for bbox coordinates
-
-# # Iterate over batches
-# for batch in batchname_lst:
-#   # Open batch image
-    
-#   # Iterate over plants in batch
-  
-#   # Display accession and repetition; instruct to draw bounding box
-  
-#   # Store bounding box coords in dataframe
-  
-#   # save/overwrite dataframe on disk
-    
-# img = np.zeros((512, 512, 3), np.uint8) 
-# cv2.namedWindow('image') 
-# cv2.setMouseCallback('image', draw_circle) 
-
-# while(1): 
-# 	cv2.imshow('image', img) 
-# 	k = cv2.waitKey(1) & 0xFF
-# 	if k == ord('m'): 
-# 		mode = not mode 
-# 	elif k == 27: 
-# 		break
-
-# cv2.destroyAllWindows() 
