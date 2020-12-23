@@ -68,7 +68,7 @@ def create_foreground_masks(RAW_TIFF_PATH, batch, layers, BATCH_MSK_PATH):
         batch: filename of batch
         BATCH_MSK_PATH: path to store created foreground mask"""
     binary_mask_lst = []
-    assert len(binary_mask_lst == 3), "Function currently only works with 3 layers, see TODO below"
+    assert len(layers) == 3, "Function currently only works with 3 layers, see TODO below"
     
     # Load metal/compton scatter layers
     for layer in layers:
@@ -178,7 +178,7 @@ def create_multimsks(batch, RAW_TIFF_PATH, BATCH_MSK_PATH,
         
     ## Save multimsk
     if path:
-        cv2.imwrite(path + batch + "multimsk.tif", multi_msk)
+        cv2.imwrite(path + batch + "multimsk.tif", multi_msk.astype("uint8"))
     
     return multi_msk
 
@@ -199,7 +199,7 @@ def crop_plant(polygon, batch_img, fg_msk, bg_color = None):
                                   col = (255,255,255), bg = bg_color) # msk_col_dct['background']
     
     # Crop image
-    x,y,w,h = cv2.boundingRect(blacked_img)
+    x,y,w,h = cv2.boundingRect(polygon)
     cropped_img = blacked_img[y:y+h,x:x+w]
     cropped_fg_msk = fg_msk[y:y+h,x:x+w]
     

@@ -7,14 +7,13 @@ Created on Wed Sep 30 16:40:58 2020
 
 import pickle
 import os
-import random
 
 import cv2
 import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from scripts import utils, segmentation, draw, stats, viz
+from scripts import utils, segmentation, stats, viz
 
 sns.set(font_scale=1.3)
 sns.set_style("ticks")
@@ -65,20 +64,21 @@ leaf_types = ["first", "grown_1", "grown_2", "developping"]
 leafmsk_col_dct = viz.get_colors(leaf_types, "hls")
 
 #TODO Write code to download data
+
 # %% Manually divide batches into plants and annotate
-df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
+# df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
 
-if os.path.exists(POLY_DCT_PATH):
-    input("Are you sure you want to override/extend the existing plant polygons? (any key / Ctrl-C to abort)")
-    with open(POLY_DCT_PATH, "rb") as f:
-        polygon_dct = pickle.load(f)
-else:
-    polygon_dct = {batchname:{} for batchname in batchname_lst}
+# if os.path.exists(POLY_DCT_PATH):
+#     input("Are you sure you want to override/extend the existing plant polygons? (any key / Ctrl-C to abort)")
+#     with open(POLY_DCT_PATH, "rb") as f:
+#         polygon_dct = pickle.load(f)
+# else:
+#     polygon_dct = {batchname:{} for batchname in batchname_lst}
 
-# draw plant polygons
-for batch in batchname_lst:
-    df = segmentation.divide_plants(RAW_TIFF_PATH, batch, polygon_dct, POLY_DCT_PATH, 
-                                    df, "data/Noccaea_nometrics.csv")
+# # draw plant polygons
+# for batch in batchname_lst:
+#     df = segmentation.divide_plants(RAW_TIFF_PATH, batch, polygon_dct, POLY_DCT_PATH, 
+#                                     df, "data/Noccaea_nometrics.csv")
 
 # %% Create batch foreground masks
 if not os.path.exists(BATCH_MSK_PATH):
@@ -155,7 +155,7 @@ for batch in batchname_lst:
 
 # %% Create masks with x percentage of pixels replaced by a random class
 plant_fns = os.listdir(PLANT_MSK_PATH)
-for percentage in [90]: 
+for percentage in [10,20,50,75,90,100]: 
     segmentation.create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage)
 
 
@@ -171,7 +171,8 @@ substructures = obj_class_lst[1:] + ["plant", "rand_1", "rand_2", "rand_5"]
 df = pd.read_csv("data/Noccaea_nometrics.csv", index_col=0)
 
 plant_fns = os.listdir(PLANT_MSK_PATH)
-# TODO noise levels loop (if still relevant)# noise loop
+# TODO noise levels loop 
+# noise loop
 # for nlvl in ["10", "20", "50", "75", "90"]:
 
 # plant loop

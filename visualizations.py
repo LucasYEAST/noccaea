@@ -72,7 +72,7 @@ if not os.path.exists("data/output/article_images/"):
     os.makedirs("data/output/article_images/")
     
 # %% Output batch scan examples
-metals = ["Zn"] #, "K", "Ca", "Ni"]
+metals = ["Zn", "K", "Ca", "Ni"]
 fn = batchname_lst[0]
 compton_fn = fn + "- " + "Image" + ".tif"
 
@@ -189,7 +189,7 @@ for metal in metals:
     
 # %% Correlate metals and show metal correlations
 
-metals = ["Zn"] #,"Ca","K","Ni"]
+metals = ["Zn","Ca","K","Ni"]
 met_tup = itertools.combinations(metals, 2)
 met_str = [" vs ".join(tup) for tup in met_tup]
 metal_cor_dct = {"plant_fn":[], "accession #":[], "pairwise correlation":[], "r":[], "p":[]}
@@ -476,7 +476,7 @@ plt.show()
 # g._legend.remove()
 
 # %% Scatter CQ against relative area proportion of substructure
-df = pd.read_csv("data/Noccaea_CQsA500.csv")
+df = pd.read_csv("data/Noccaea_CQs.csv")
 df = df.loc[df.batch.notna(),:]
 
 
@@ -500,11 +500,11 @@ for i, substrct in enumerate(substructures):
     plt.xlabel("relative substructure area [%]")
     plt.ylabel("CQ")
     plt.title(substrct)
-plt.savefig("data/output/results/CQ versus rel subs area.png", bbox_inches="tight")
+plt.savefig("data/output/article_images/CQ versus rel subs area.png", bbox_inches="tight")
 plt.show()
 
 # %% Plot H2 for all metals
-assert os.path.exists("data/H2_CQ_table.csv", "H2_CQ_table.csv not found, did you run the main.R script?")
+assert os.path.exists("data/H2_CQ_table.csv"), "H2_CQ_table.csv not found, did you run the main.R script?"
 
 H2 = pd.read_csv("data/H2_CQ_table.csv", index_col=0)
 df = pd.read_csv("data/Noccaea_CQs.csv")
@@ -605,7 +605,7 @@ plt.legend(bbox_to_anchor=(1.32, 1),loc = 'upper right')
 # plt.savefig("data/output/article_images/CQ_H2_Noise_substrs.png", dpi=300, bbox_inches="tight")
 
 
-# %% Get correlations between metals within substructures
+# %% Get correlations between metal CQs within substructures
 df = pd.read_csv("data/Noccaea_CQs.csv")
 df_noNAN = df.loc[df['batch'].notna(),:]
 
@@ -672,15 +672,38 @@ print(recall)
     
 # %% Visualize sensitivity analysis
 # TODO fix the manual blade size part in tandem with sensitivity analysis itself
-from scripts.sensitivity_analysis import para_dct, para_map
+# TODO currently para_dct and non-varying parameters are copied from main. Fix more elegantly
+
 from sklearn import metrics
 
 sens_df = pd.read_csv("data/rand_pred_pixel_sens.csv", index_col=0, header=0)
 para_df = pd.read_csv("data/sensitivity_paras.csv", index_col=0, header=0)
 
+para_dct={"blade_ksize": [7, 11, 19, 23],
+		"lap_ksize": [ 3, 5, 7, 9, 11],
+		"thin_th":  [-3500, -3000 ,-2500, -2000, -1500],
+		"fat_th":	[-200, -100, 0, 100, 200]}
+
+# Set non-varying parameter values
+b= 15
+l= 7
+t= -2500
+f= 0
+
+para_map = {}
+i = 0
+for k,v in para_dct.items():
+    for para in v:
+        para_df.loc[i,:] = [b,l,t,f]
+        para_df.loc[i, k] = para
+        para_map[i] = k + "_" + str(para)
+        i += 1
+
 
 F1_dct = {"Parameter":[],"Parameter Value":[],"Substructure":[],
                               "recall":[], "precision":[], "F1":[]}
+
+
 
 y_true = sens_df.obs_class
 for k,v in para_map.items():
@@ -784,7 +807,7 @@ while answer != "stop":
         cv2.imwrite("data/output/article_images/wrongclass_multimsk_" + answer + "_" + fn + ".png", multimsk[sb:nb, eb:wb])
         
     
-# %% Check noise distribution
+# %% Check noise distribution and plot noise distributions
 rev_msk_col_dct = {v:k for k,v in msk_col_dct.items()}
 dct = {"plant_fn":[], "percentage":[], "noise_substruct":[]}
 dct.update({sbstrct:[] for sbstrct in obj_class_lst[1:]})
@@ -820,8 +843,7 @@ for fn in plant_fns:
                     dct[actual_sbstrct].append((cnt/counts.sum()) * 100)
                 except KeyError: # Add 0 if no pixel counts for actual substruct
                     dct[actual_sbstrct].append(0)
-                
-# %% plot noise distributions
+
 noise_dist_df = pd.DataFrame(dct)
 
 fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(10,10))

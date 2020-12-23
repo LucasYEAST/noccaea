@@ -17,7 +17,7 @@ input$rep <- as.factor(input$Biological.replicate)
 input$genotype <- as.factor(input$Accession..)
 phenotypes <- c("plant_n_pix", "plant_meanC", "petiole", "margin", "vein", "tissue", "rand_1", "rand_2", "rand_5")
 
-metals <- c("metal_Z", "metal_K", "metal_Ni", "metal_Ca")
+metals <- c("metal_Zn", "metal_K", "metal_Ni", "metal_Ca")
 # noise_levels <- c("10", "20", "50","75","90") 
 # metal <- "metal_Z"
 metric <- "CQ"
