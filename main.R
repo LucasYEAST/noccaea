@@ -2,12 +2,14 @@
 if (!require("doBy")) install.packages("doBy")
 if (!require("lme4")) install.packages("lme4")
 if (!require("lmtest")) install.packages("lmtest")
+if (!require("heritability")) install.packages("heritability")
 
 #calling packages
 library("doBy")
 library(lme4)
 library(ggplot2)
 library(lmtest)
+library(heritability)
 
 
 input <- read.csv("data/Noccaea_CQs.csv", stringsAsFactors = T)
@@ -41,6 +43,7 @@ for (metal in metals){
     par(mfcol = c(2,2))
     plot(fit)
     
+    print((paste("below: ", colname)))
     test <- bptest(fit)
     if (test["p.value"] < .05){
       print(paste(colname, "not homoskedastic"))
@@ -59,6 +62,11 @@ for (metal in metals){
     
     sum <- summary(fitlmer_rand)
     out <- as.data.frame(VarCorr(fitlmer_rand))
+    H2_frac <- out$vcov[1] /  (out$vcov[1] + out$vcov[2])
+    rep_sum <- repeatability(input$phenotype, input$genotype)
+    print(paste("mixed H2", H2_frac))
+    print(paste("Anova H2", rep_sum$repeatability))
+    
     if (current_phenotype == phenotypes[1]){
       result <- data.frame(out$vcov[1], out$vcov[2])
       names(result) <- c("genotype", "residual")
@@ -104,7 +112,7 @@ write.csv(combined_results, "data/H2_CQ_table.csv")
 sampled_accessions <- sample(input$Accession.., 15)
 input_plot <- input[input$Accession.. %in% sampled_accessions,]
 input_plot$Accession.. <- as.factor(input_plot$Accession..)
-ggplot(input_plot, aes(x=Accession.., y=metal_Ca_rand_1_CQ , color=Accession..)) + geom_point()
+ggplot(input_plot, aes(x=Accession.., y=metal_Ca_rand_2_CQ , color=Accession..)) + geom_point()
 # 
 
 # sum <- summaryBy(phenotype ~ genotype, data = input, FUN = c(mean, sd, length)) 

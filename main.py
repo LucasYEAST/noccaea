@@ -4,6 +4,7 @@ Created on Wed Sep 30 16:40:58 2020
 
 @author: lucas
 """
+print("you are running this with old data, please copy data from documents/rep/noccaea or generate new data")
 
 import pickle
 import os

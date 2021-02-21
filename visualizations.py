@@ -251,6 +251,9 @@ for i, pair in enumerate(met_str):
     plt.savefig("data/output/article_images/sup_metalcor_"+pair+".png", dpi=300)
     plt.show()
 
+y = metal_cor_df.groupby(["plant_fn","accession #","pairwise correlation"])["r"].aggregate('mean').unstack()
+y.to_csv("data/output/pairwise_metal_corr.csv")
+
 # %% Get normalized mean concentration of substructures
 
 mean_subC_dct = {substrct:[] for substrct in obj_class_lst[1:]}
@@ -503,6 +506,21 @@ for i, substrct in enumerate(substructures):
 plt.savefig("data/output/article_images/CQ versus rel subs area.png", bbox_inches="tight")
 plt.show()
 
+# %% Check CQ dist for some random CQs
+df = pd.read_csv("data/Noccaea_CQs.csv")
+df = df.loc[df["batch"].notna(),:]
+accessions = df["Accession #"].unique().tolist()
+selected_accessions = accessions[0::len(accessions)//25] 
+
+toshow = ["metal_K_rand_2_CQ"]
+xlabs = ["plant size (pixels)", "petiole Zn CQ", "random substructure Zn CQ"]
+plt_df = df.loc[df["Accession #"].isin(selected_accessions),["Accession #", "metal_K_rand_2_CQ"]]
+sns.stripplot(x="Accession #", y= "metal_K_rand_2_CQ", data=plt_df,
+                jitter=False, color=sns.color_palette()[0],
+                linewidth=1)
+
+plt.show()
+
 # %% Plot H2 for all metals
 assert os.path.exists("data/H2_CQ_table.csv"), "H2_CQ_table.csv not found, did you run the main.R script?"
 
@@ -638,15 +656,15 @@ Y_pred =  randpix_df["pred_class"]
 conf_matrix = pd.DataFrame(metrics.confusion_matrix(Y_obs,Y_pred, [1,2,3,4]))
 print(conf_matrix)
 sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
-conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
+# conf_matrix = conf_matrix.div(conf_matrix.sum(axis=1), axis=0)
 plt.figure(figsize=(4,5))
 p = sns.heatmap(conf_matrix, xticklabels=labels, yticklabels=labels, annot=True, cbar=False)
 p.set_xticklabels(labels, rotation=90)
 p.set_yticklabels(labels, rotation=0)
 plt.legend([],[], frameon=False)
 
-# plt.savefig("data/output/article_images/confusion_matrix.png", dpi=300,
-            # bbox_inches="tight")
+plt.savefig("data/output/article_images/confusion_matrix_nonnormal.png", dpi=300,
+            bbox_inches="tight")
 
 plt.show()
 F_scores = metrics.f1_score(Y_obs,Y_pred, labels = [1,2,3,4], average=None)
