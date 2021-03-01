@@ -4,8 +4,6 @@ Created on Wed Sep 30 16:40:58 2020
 
 @author: lucas
 """
-print("you are running this with old data, please copy data from documents/rep/noccaea or generate new data")
-
 import pickle
 import os
 
@@ -158,6 +156,7 @@ for batch in batchname_lst:
 plant_fns = os.listdir(PLANT_MSK_PATH)
 for percentage in [10,20,50,75,90,100]: 
     segmentation.create_noised_msks(PLANT_MULTIMSK_PATH, PLANT_MSK_PATH, plant_fns, msk_col_dct, percentage)
+
 
 
 # %% Create random substructures with (N_pixels) amount of random substructures per plant

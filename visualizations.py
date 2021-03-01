@@ -97,21 +97,36 @@ plt.savefig("data/output/article_images/metal_images.png", dpi=300)
     # viz.plot_big(img[:600,:600])
 
 # %% Correlate ICP and muXRF
+import re
+
 df = pd.read_csv("data/Noccaea_CQs.csv")
+
+# Multiply ICP ppm data with shoot weight
+shoot_weight = pd.read_csv("data/shoot_weight.csv", header=0)
+shoot_weight.columns = ["Batch", "Name", "Weight"]
+shoot_weight[["empty", "Accession #", "Biological replicate"]] = shoot_weight['Name'].str.split('(\d+)', expand=True)
+shoot_weight = shoot_weight[[ "Accession #", "Biological replicate","Weight"]]
+shoot_weight["Accession #"] = shoot_weight["Accession #"].astype(int)
+shoot_weight["Biological replicate"] = shoot_weight["Biological replicate"].astype(str)
+df = df.merge(shoot_weight, on=("Accession #", "Biological replicate"))
+
+
 sns.set_style("ticks")
 palette = itertools.cycle(sns.color_palette())
 
 metals = ["Zn"] #,"Ca","K","Ni"]
+abs_metals = [metal + "_abs" for metal in metals]
+df[abs_metals] = df[metals].mul(df["Weight"], axis=0)
 
 # Correlate ICP-AES ratio to plant size for all metals
 for metal in metals:
     abs_metal = "_".join(("metal", metal, "plant", "abs"))
     
-    ratio = df[metal] / df[abs_metal]
+    ratio = df[metal + "_abs"] / df[abs_metal]
     sns.scatterplot(x=df["metal_Zn_plant_n_pix"], y = ratio, color=next(palette))
     plt.ylabel("ICP-AES : \u03BCXRF ratio")
     plt.xlabel("Plant Size [pixels]")
-    plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
+    # plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
     plt.show()
 
 # Correlate mean zinc concentration to the ICP:muXRF ratio
