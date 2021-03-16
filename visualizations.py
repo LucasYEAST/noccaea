@@ -114,20 +114,21 @@ df = df.merge(shoot_weight, on=("Accession #", "Biological replicate"))
 sns.set_style("ticks")
 palette = itertools.cycle(sns.color_palette())
 
-metals = ["Zn"] #,"Ca","K","Ni"]
-abs_metals = [metal + "_abs" for metal in metals]
-df[abs_metals] = df[metals].mul(df["Weight"], axis=0)
+metals = ["Zn","Ca","K","Ni"]
+abs_metals = [metal + "_ICPshootAbs" for metal in metals]
+df[abs_metals] = df[metals].mul(df["Weight"], axis=0) * 10**-6 * 10**3 # 10**-6 conerts mg(plant) to kg, 10**3 -> mug/plant
+
 
 # Correlate ICP-AES ratio to plant size for all metals
-for metal in metals:
-    abs_metal = "_".join(("metal", metal, "plant", "abs"))
+# for metal in metals:
+#     abs_metal = "_".join(("metal", metal, "plant", "abs"))
     
-    ratio = df[metal + "_abs"] / df[abs_metal]
-    sns.scatterplot(x=df["metal_Zn_plant_n_pix"], y = ratio, color=next(palette))
-    plt.ylabel("ICP-AES : \u03BCXRF ratio")
-    plt.xlabel("Plant Size [pixels]")
-    # plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
-    plt.show()
+#     ratio = df[metal + "_ICPshootAbs"] / df[abs_metal]
+#     sns.scatterplot(x=df["metal_Zn_plant_n_pix"], y = ratio, color=next(palette))
+#     plt.ylabel("ICP-AES : \u03BCXRF ratio")
+#     plt.xlabel("Plant Size [pixels]")
+#     # plt.savefig("data/output/article_images/ICP-AES_muXRF_ratio_plantsize"+ metal + ".png", bbox_inches="tight")
+    # plt.show()
 
 # Correlate mean zinc concentration to the ICP:muXRF ratio
 # sns.scatterplot(x="metal_Zn_plant_meanC", y = "ICP:muXRF_ratio", data=df)
@@ -136,16 +137,17 @@ for metal in metals:
 # plt.show()
 
 # Correlate ICP-AES zinc concentration to muXRF zinc concentration
-# sns.scatterplot(x="Zn", y = "metal_Zn_plant_abs", data=df)
-# dfcor = df.loc[(df.Zn.notna()) & (df.metal_Zn_plant_abs.notna()),:]
-# r,p = pearsonr(dfcor.Zn, dfcor.metal_Zn_plant_abs)
-# print(r,p)
-# plt.ylabel("\u03BCXRF absolute zinc [-]")
-# plt.xlabel("ICP-AES absolute zinc [\u03BCm]")
-# plt.title("IPC-AES versus muXRF per plant")
-# # plt.title("r: " + str(r))
-# plt.savefig("data/output/results/ICP-AES versus muXRF.png", bbox_inches='tight')
-# plt.show()
+for metal in metals:
+    sns.scatterplot(x=metal+"_ICPshootAbs", y = "metal_" + metal + "_plant_abs", data=df)
+    dfcor = df.loc[(df[metal+"_ICPshootAbs"].notna()) & (df["metal_" + metal + "_plant_abs"].notna()),:]
+    r,p = pearsonr(dfcor[metal+"_ICPshootAbs"], dfcor["metal_" + metal + "_plant_abs"])
+    print(metal, ": ", r,p)
+    plt.ylabel("\u03BCXRF total" + metal + " [- $plant^{-1}$]")
+    plt.xlabel("ICP-AES total " + metal + " [\u03BCg $plant^{-1}$ ]")
+    # plt.title("IPC-AES versus muXRF per plant")
+    # plt.title("r: " + str(r))
+    plt.savefig("data/output/article_images/ICP-AES versus muXRF for " + metal + ".png", bbox_inches='tight', dpi = 300)
+    plt.show()
 
 # Find outliers
 # outlier_abs_fn = df.loc[df["ICP:muXRF_ratio"] > 0.00075,"fn"].tolist()
@@ -245,7 +247,7 @@ plt.legend("")
 plt.ylabel("$\it{r}$")
 plt.xlabel("")
 plt.ylim(-1,1)
-plt.savefig("data/output/article_images/metal_cor.png", dpi=300, bbox_inches="tight")
+# plt.savefig("data/output/article_images/metal_cor.png", dpi=300, bbox_inches="tight")
 plt.show()
 
 accs = random.sample(metal_cor_df["accession #"].unique().tolist(), 15)
@@ -263,7 +265,7 @@ for i, pair in enumerate(met_str):
                 jitter=False, palette="Set2")
     plt.xticks(fontsize=10, rotation=45)
     plt.ylim(-1,1)
-    plt.savefig("data/output/article_images/sup_metalcor_"+pair+".png", dpi=300)
+    # plt.savefig("data/output/article_images/sup_metalcor_"+pair+".png", dpi=300)
     plt.show()
 
 y = metal_cor_df.groupby(["plant_fn","accession #","pairwise correlation"])["r"].aggregate('mean').unstack()
@@ -310,6 +312,7 @@ from statsmodels.formula.api import ols
 
 metals = ["Zn","Ca","K","Ni"]
 mean_subC_df = pd.read_csv("data/normalized_mean_subs_conc.csv", index_col=0, header=0)
+mean_subC_df.loc[mean_subC_df["metal"] == "Z", "metal"] = "Zn"
 
 # Plot mean normalized concentrations
 fig, axes = plt.subplots(nrows=1, ncols=4, figsize=(20,5))
@@ -896,4 +899,36 @@ plt.tight_layout()
 plt.legend(title="actual pix under nosie", bbox_to_anchor=(2.1, 2.2),loc = 'upper right')
 plt.savefig("data/output/article_images/noised_actual_dist.png", dpi=300, bbox_inches="tight")
 noise_dist_df.to_csv("data/noise_actual_dist_df.csv")
+
+# %% Plot metal correlation H2
+order = ["Zn vs K","Zn vs Ca", "Zn vs Ni", "K vs Ca", "K vs Ni", "Ca vs Ni"]
+
+metal_cor_df = pd.read_csv("data/output/pairwise_metal_corr.csv")
+metal_cor_df.rename(columns={'Ca vs K':'K vs Ca'}, inplace=True)
+metal_cor_df = metal_cor_df.loc[:,order]
+
+# Make data tidy
+metal_cor_df = pd.melt(metal_cor_df,
+                       var_name="r",
+                       value_name="Correlation")
+sns.stripplot(x="r", y="Correlation", data=metal_cor_df, linewidth=1)
+plt.legend("")
+plt.ylabel("$\it{r}$")
+plt.xlabel("")
+plt.ylim(-1,1)
+plt.savefig("data/output/article_images/metal_cor.png", dpi=300, bbox_inches="tight")
+plt.show()
+
+metal_cor_H2 = pd.read_csv("data/metal_cor_H2.csv")
+metal_cor_H2.index = metal_cor_H2["Correlation"]
+metal_cor_H2 = metal_cor_H2.loc[order,:]
+
+sns.barplot(x=metal_cor_H2.Correlation, y=metal_cor_H2.H2)
+plt.ylabel("H2 (%)")
+plt.xlabel("")
+plt.xticks(rotation=45)
+plt.ylim((0,100))
+plt.savefig("data/output/article_images/metal_cor_H2.png", dpi=300, bbox_inches="tight")
+plt.show()
+
 
